@@ -128,3 +128,58 @@ export async function analyzeScreenshotContext(extractedText) {
     throw parseError;
   }
 }
+
+export async function queryScreenshotLibrary(userMessage, allQueueItems) {
+  const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
+
+  if (!apiKey) {
+    throw new Error('EXPO_PUBLIC_GEMINI_API_KEY is missing.');
+  }
+
+  // Create a minimal context string for the LLM
+  const contextData = allQueueItems
+    .map(
+      (item) =>
+        `Date: ${new Date(item.timestamp).toLocaleDateString()}
+Category: ${item.contentType}
+Summary: ${item.summary}
+Action: ${item.suggestedAction}
+Tags: ${(item.tags || []).join(', ')}
+${item.extractedUrl ? `URL: ${item.extractedUrl}` : ''}`
+    )
+    .join('\n\n');
+
+  const systemPrompt = `You are the LaterLens AI assistant. Your job is to answer questions based ONLY on the user's screenshot library context provided below. Be concise. If the user asks for something not in the context, accurately state you cannot find it. 
+
+USER'S SCREENSHOT LIBRARY:
+${contextData}
+
+Answer the user's latest message succinctly.`;
+
+  const response = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      contents: [
+        {
+          role: 'user',
+          parts: [{ text: `${systemPrompt}\n\nUSER QUESTION: ${userMessage}` }],
+        },
+      ],
+      generationConfig: {
+        temperature: 0.2, // low temperature for factual retrieval
+        maxOutputTokens: 500,
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error('Chat generation failed.');
+  }
+
+  const payload = await response.json();
+  const text = payload?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  return text.trim();
+}
