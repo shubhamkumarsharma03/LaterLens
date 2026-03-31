@@ -1,171 +1,226 @@
 # LaterLens — AI-Powered Screenshot Assistant
 
-An AI-powered mobile app built with **React Native + Expo** that helps you organise and resurface your screenshots intelligently using the Gemini API.
+> **Your screenshots, actionable.** LaterLens is an AI-powered mobile app that reads your screenshots, understands context with Gemini AI + on-device OCR, and creates a smart feed of tasks, reminders, and actions — all processed securely on your device.
+
+<p align="center">
+  <img src="https://img.shields.io/badge/React_Native-0.81-61DAFB?style=for-the-badge&logo=react&logoColor=white" alt="React Native" />
+  <img src="https://img.shields.io/badge/Expo_SDK-54-000020?style=for-the-badge&logo=expo&logoColor=white" alt="Expo" />
+  <img src="https://img.shields.io/badge/Gemini_AI-1.5_Flash-4285F4?style=for-the-badge&logo=google&logoColor=white" alt="Gemini" />
+  <img src="https://img.shields.io/badge/Platform-iOS_%7C_Android-lightgrey?style=for-the-badge" alt="Platform" />
+</p>
 
 ---
 
-## Table of Contents
+## ✨ Features
 
-1. [Phase 1 – Environment Setup & Project Initialisation](#phase-1--environment-setup--project-initialisation)
-   - [1. System Check](#1-system-check)
-   - [2. Project Creation](#2-project-creation)
-   - [3. Install Dependencies](#3-install-dependencies)
-   - [4. Folder Structure](#4-folder-structure)
-   - [5. Environment Variables](#5-environment-variables)
-   - [6. Running the App](#6-running-the-app)
-2. [Project Structure](#project-structure)
-3. [Tech Stack](#tech-stack)
-
----
-
-## Phase 1 – Environment Setup & Project Initialisation
-
-### 1. System Check
-
-Verify that **Node.js**, **npm**, and **Git** are installed on your system:
-
-```bash
-node --version   # Expected: v18.x or higher
-npm --version    # Expected: 9.x or higher
-git --version    # Expected: git version 2.x
-```
-
-> **Not installed?**
-> - **Node.js & npm**: Download from <https://nodejs.org> (LTS version recommended).
-> - **Git**: Download from <https://git-scm.com/downloads>.
+- 📸 **Auto Screenshot Analysis** — Fetches your latest screenshot and runs on-device OCR + Gemini AI to extract intent
+- 🧠 **Smart Categorisation** — AI classifies screenshots into Product, Study Material, Idea, Code, Event, or Receipt
+- ⚡ **Action Queue** — A priority feed of actionable items with suggested next steps (e.g. "Add to Calendar", "Buy Now")
+- 🎯 **Quick Actions** — Complete, Snooze, or Archive items with haptic feedback and smooth animations
+- 📂 **Collections** — Browse all processed screenshots organised by category
+- 🤖 **Ask AI** — Chat with AI about your screenshots for deeper insights
+- 📊 **Insights & Streaks** — Track your productivity patterns
+- 🌗 **Premium Light & Dark Themes** — Automatic system-aware theming with carefully crafted palettes
+- 🔒 **Privacy-First** — All OCR processing happens on-device; only extracted text goes to Gemini API
 
 ---
 
-### 2. Project Creation
+## 🎨 Design System
 
-Initialise a new Expo project using the **blank** managed-workflow template:
-
-```bash
-npx create-expo-app@latest screenshot-assistant --template blank
-```
-
-> This creates a new folder `screenshot-assistant/` with all Expo boilerplate already in place.
-
----
-
-### 3. Install Dependencies
-
-Navigate into the project directory, then install the packages required for `.env` support:
-
-```bash
-cd screenshot-assistant
-npm install expo-constants dotenv
-```
-
-| Package | Purpose |
+### Light Theme
+| Element | Colour |
 |---|---|
-| `expo-constants` | Exposes Expo manifest values (including `EXPO_PUBLIC_*` env vars) at runtime. |
-| `dotenv` | Loads `.env` files into `process.env` during local development. |
+| Background | `#F9FAFB` |
+| Card Surface | `#FFFFFF` + soft shadow |
+| Primary Accent | `#6366F1` (Indigo) |
+| Text Primary | `#111827` |
+| Text Secondary | `#6B7280` |
+
+### Dark Theme
+| Element | Colour |
+|---|---|
+| Background | `#0F172A` (Deep Slate) |
+| Card Surface | `#1E293B` + subtle border |
+| Primary Accent | `#818CF8` (Vibrant Indigo) |
+| Text Primary | `#F8FAFC` |
+| Text Secondary | `#9CA3AF` |
+
+### Category Badge Colours
+Each AI category gets a unique semantic colour for instant visual recognition:
+- 🟢 **Product** — Green tint
+- 🔵 **Study Material** — Blue tint
+- 🟡 **Idea** — Amber tint
+- 🌿 **Code** — Forest green tint
+- 🩷 **Event** — Pink tint
+- 🟣 **Receipt** — Purple tint
 
 ---
 
-### 4. Folder Structure
-
-Create a clean `src/` directory that separates concerns:
-
-```bash
-mkdir -p src/components src/services src/utils
-```
-
-Recommended layout:
+## 🏗️ Project Structure
 
 ```
-screenshot-assistant/
-├── App.js                  # Root application component
-├── app.json                # Expo project configuration
-├── .env                    # Secret env vars (NOT committed)
-├── .env.example            # Safe template (committed)
+LaterLens/
+├── App.js                          # Root component (Navigation + Providers)
+├── app.json                        # Expo configuration
+├── index.js                        # Entry point
+├── .env                            # Secret env vars (git-ignored)
+├── .env.example                    # Key template (committed)
 ├── package.json
+├── assets/                         # Icons, splash screen images
 └── src/
-    ├── components/         # Reusable UI components
-    ├── services/           # API calls (Gemini, etc.)
-    └── utils/              # Helper functions
+    ├── theme/
+    │   ├── colors.js               # Design tokens (palettes, typography, spacing)
+    │   └── useTheme.js             # Central theme hook (useColorScheme)
+    ├── components/
+    │   └── ActionCard.js           # Premium action card with haptics & animations
+    ├── screens/
+    │   ├── home/
+    │   │   ├── PermissionsScreen.js # Onboarding with animated glow icon
+    │   │   ├── HomeQueueScreen.js   # Main action feed with branded header
+    │   │   └── ActionDetailScreen.js# Full detail view for an action
+    │   ├── collections/            # Collection browsing screens
+    │   ├── askAI/                  # AI chat screens
+    │   └── insights/               # Stats & streak screens
+    ├── navigation/
+    │   ├── AppNavigator.js         # Tab + Stack navigators (themed)
+    │   └── routeNames.js          # Route name constants
+    ├── state/
+    │   ├── QueueContext.js         # Global queue state (React Context)
+    │   └── queueReducer.js        # Queue reducer actions
+    ├── services/
+    │   ├── aiProcessingEngine.js   # OCR + Gemini AI pipeline
+    │   └── actionQueueStorage.js   # AsyncStorage persistence
+    ├── models/
+    │   └── actionModels.js         # Content types, intents, statuses
+    └── utils/
 ```
 
 ---
 
-### 5. Environment Variables
+## 🚀 Getting Started
 
-**Create the `.env` file** at the project root:
+### Prerequisites
+
+| Tool | Version |
+|---|---|
+| Node.js | 18+ |
+| npm | 9+ |
+| Git | 2.x+ |
+| Expo CLI | Latest |
+| Android Studio or Xcode | For emulator/simulator |
+| Expo Go app | On your physical device |
+
+### 1. Clone the Repository
 
 ```bash
-touch .env
+git clone https://github.com/your-username/LaterLens.git
+cd LaterLens
 ```
 
-**Add your Gemini API key placeholder** inside `.env`:
+### 2. Install Dependencies
+
+```bash
+npm install
+```
+
+### 3. Set Up Environment Variables
+
+```bash
+cp .env.example .env
+```
+
+Open `.env` and add your Gemini API key:
 
 ```env
 EXPO_PUBLIC_GEMINI_API_KEY=your_gemini_api_key_here
 ```
 
-> The `EXPO_PUBLIC_` prefix makes the variable accessible in your React Native code via
-> `process.env.EXPO_PUBLIC_GEMINI_API_KEY`.
+> Get your API key from [Google AI Studio](https://aistudio.google.com/apikey).
 
-**Protect your keys — add `.env` to `.gitignore`:**
-
-Open `.gitignore` and ensure the following lines are present:
-
-```
-# local env files
-.env
-.env*.local
-```
-
-**Never commit your real API key.** Commit `.env.example` instead so teammates know which keys are needed.
-
----
-
-### 6. Running the App
-
-Start the Expo development server:
+### 4. Run the App
 
 ```bash
 npx expo start
 ```
 
-Then:
+This will start the Expo dev server and display a QR code in the terminal.
 
-1. Install the **Expo Go** app on your iOS or Android device.
-2. Scan the QR code shown in the terminal with:
-   - **Android**: the Expo Go app's built-in QR scanner.
-   - **iOS**: the default Camera app.
+#### Option A — Physical Device (Recommended)
 
-The blank app will load on your device instantly.
+1. Install the **Expo Go** app on your phone:
+   - [Android — Play Store](https://play.google.com/store/apps/details?id=host.exp.exponent)
+   - [iOS — App Store](https://apps.apple.com/app/expo-go/id982107779)
+2. Scan the QR code:
+   - **Android**: Use the Expo Go app's built-in scanner
+   - **iOS**: Use the default Camera app
+3. The app will load on your device within seconds
+
+#### Option B — Android Emulator
+
+1. Make sure Android Studio is installed with an emulator configured
+2. Start the emulator
+3. Press `a` in the Expo terminal to open on Android
+
+#### Option C — iOS Simulator (macOS only)
+
+1. Make sure Xcode is installed
+2. Press `i` in the Expo terminal to open on iOS Simulator
+
+#### Option D — Development Build (for native modules)
+
+Since this app uses `expo-media-library` and `@react-native-ml-kit/text-recognition` (native modules), you may need a development build for full functionality:
+
+```bash
+# Android
+npx expo run:android
+
+# iOS
+npx expo run:ios
+```
+
+> **Note:** OCR and photo library access require a development build or a physical device. They won't work in Expo Go on all platforms.
 
 ---
 
-## Project Structure
-
-```
-LaterLens/
-├── App.js                  # Root component
-├── app.json                # Expo configuration
-├── index.js                # Entry point (auto-generated)
-├── .env                    # Local secrets (git-ignored)
-├── .env.example            # Key template (committed)
-├── .gitignore
-├── package.json
-├── package-lock.json
-├── assets/                 # Images, icons, splash screen
-└── src/
-    ├── components/         # Shared UI components
-    ├── services/           # External API integrations
-    └── utils/              # Pure helper utilities
-```
-
----
-
-## Tech Stack
+## ⚙️ Tech Stack
 
 | Layer | Technology |
 |---|---|
-| Framework | React Native (Expo Managed Workflow) |
+| Framework | React Native 0.81 (Expo SDK 54) |
 | Language | JavaScript (ES2022) |
-| AI Backend | Google Gemini API |
-| Env management | `dotenv` + `expo-constants` |
-| Runtime | Node.js 18+ / Expo SDK 52+ |
+| AI / LLM | Google Gemini 1.5 Flash API |
+| OCR | `@react-native-ml-kit/text-recognition` (on-device) |
+| Navigation | React Navigation 7 (Bottom Tabs + Native Stack) |
+| State | React Context + useReducer |
+| Storage | `@react-native-async-storage/async-storage` |
+| Icons | `lucide-react-native` |
+| Haptics | `expo-haptics` |
+| Theming | Custom design system + `useColorScheme` |
+| Env | `dotenv` + `expo-constants` |
+
+---
+
+## 📱 Screens Overview
+
+| Screen | Description |
+|---|---|
+| **Permissions** | Animated onboarding with glowing camera icon and photo access CTA |
+| **Home Feed** | Branded header, time-of-day greeting, action card feed with swipe gestures |
+| **Action Detail** | Full screenshot view with tags, category badge, and action buttons |
+| **Collections** | Browse all screenshots by category with search |
+| **Ask AI** | Chat with AI about your screenshot content |
+| **Insights** | Productivity stats and streak tracking |
+
+---
+
+## 🔑 Environment Variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `EXPO_PUBLIC_GEMINI_API_KEY` | ✅ | Your Google Gemini API key |
+
+---
+
+## 📄 License
+
+This project is private and not open for redistribution.
