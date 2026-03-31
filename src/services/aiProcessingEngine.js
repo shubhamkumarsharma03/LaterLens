@@ -1,7 +1,7 @@
 import TextRecognition from '@react-native-ml-kit/text-recognition';
 
 const GEMINI_ENDPOINT =
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 
 const FALLBACK_RESULT = {
   contentType: 'Idea',
@@ -9,6 +9,7 @@ const FALLBACK_RESULT = {
   tags: ['unclassified', 'screenshot', 'pending'],
   suggestedAction: 'Review manually',
   summary: 'Could not confidently classify the screenshot.',
+  extractedUrl: null,
 };
 
 const STRICT_SCHEMA_PROMPT = `You are a contextual screenshot analyzer.
@@ -18,6 +19,7 @@ Return only valid JSON with exactly these keys:
 - tags: array of strings (3 to 5 concise clustering keywords)
 - suggestedAction: string (short actionable command)
 - summary: string (one sentence)
+- extractedUrl: string (a primary URL, email mailto:, or deep link found in the text, or null if absolutely none exist)
 
 Rules:
 - Output must be strict JSON object only. No markdown, no extra keys, no explanation.
@@ -31,8 +33,14 @@ function parseGeminiJson(rawText) {
     throw new Error('Gemini returned an empty response.');
   }
 
-  const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-  const candidate = fencedMatch?.[1] ? fencedMatch[1].trim() : trimmed;
+  let candidate = trimmed;
+  const startIdx = candidate.indexOf('{');
+  const endIdx = candidate.lastIndexOf('}');
+  
+  if (startIdx !== -1 && endIdx !== -1 && endIdx >= startIdx) {
+    candidate = candidate.substring(startIdx, endIdx + 1);
+  }
+
   const parsed = JSON.parse(candidate);
 
   return {
@@ -41,6 +49,7 @@ function parseGeminiJson(rawText) {
     tags: Array.isArray(parsed.tags) ? parsed.tags.slice(0, 5).map((tag) => String(tag)) : FALLBACK_RESULT.tags,
     suggestedAction: String(parsed.suggestedAction || FALLBACK_RESULT.suggestedAction),
     summary: String(parsed.summary || FALLBACK_RESULT.summary),
+    extractedUrl: parsed.extractedUrl ? String(parsed.extractedUrl) : FALLBACK_RESULT.extractedUrl,
   };
 }
 
@@ -95,7 +104,7 @@ export async function analyzeScreenshotContext(extractedText) {
       ],
       generationConfig: {
         temperature: 0.2,
-        maxOutputTokens: 300,
+        maxOutputTokens: 800,
         responseMimeType: 'application/json',
       },
     }),

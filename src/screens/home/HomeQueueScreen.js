@@ -143,7 +143,9 @@ export default function HomeQueueScreen() {
   const [hasPermission, setHasPermission] = useState(false);
   const [message, setMessage] = useState('');
   const {
+    allItems,
     queueItems,
+    queueHydrated,
     hydrateQueue,
     addQueueItem,
     completeQueueItem,
@@ -153,8 +155,24 @@ export default function HomeQueueScreen() {
   } = useQueue();
 
   useEffect(() => {
-    bootstrapApp();
-  }, []);
+    setIsLoading(true);
+    hydrateQueue()
+      .catch((err) => {
+        console.log('[App] Failed during hydration:', err);
+        setMessage('Could not load your action queue.');
+      })
+      .finally(() => {
+        setIsLoading(false);
+      });
+  }, [hydrateQueue]);
+
+  useEffect(() => {
+    if (queueHydrated) {
+      reviveDueSnoozed().catch((err) => console.log('[Queue] Failed to revive:', err));
+      initializeMediaFlow();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queueHydrated]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -166,21 +184,7 @@ export default function HomeQueueScreen() {
     return () => clearInterval(timer);
   }, [reviveDueSnoozed]);
 
-  // ─── Bootstrap ──
-
-  const bootstrapApp = async () => {
-    setIsLoading(true);
-    try {
-      await hydrateQueue();
-      await reviveDueSnoozed();
-      await initializeMediaFlow();
-    } catch (error) {
-      console.log('[App] Failed during bootstrap:', error);
-      setMessage('Could not load your action queue.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  // ─── Flow ──
 
   const initializeMediaFlow = async () => {
     setIsProcessing(true);
@@ -200,11 +204,27 @@ export default function HomeQueueScreen() {
         return;
       }
 
+      if (Platform.OS === 'android' && Platform.Version >= 29) {
+        const { PermissionsAndroid } = require('react-native');
+        try {
+          await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_MEDIA_LOCATION);
+        } catch (err) {
+          console.log('[Media] Failed to request media location permission:', err);
+        }
+      }
+
       setHasPermission(true);
       const uri = await fetchLatestScreenshotUri();
 
       if (!uri) {
         setMessage('No screenshots found yet in your library.');
+        return;
+      }
+
+      const isDuplicate = allItems.some((item) => item.imageUri === uri);
+      if (isDuplicate) {
+        console.log('[Media] Screenshot already processed:', uri);
+        setMessage('Latest screenshot is already processed.');
         return;
       }
 
@@ -236,6 +256,7 @@ export default function HomeQueueScreen() {
         tags: metadata.tags,
         suggestedAction: metadata.suggestedAction,
         summary: metadata.summary,
+        extractedUrl: metadata.extractedUrl || null,
         status: 'queued',
       };
 

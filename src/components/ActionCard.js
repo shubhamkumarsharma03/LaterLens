@@ -14,9 +14,9 @@
  */
 
 import { useCallback, useRef } from 'react';
-import { Animated, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
-import { Check, Clock, Archive, ChevronRight } from 'lucide-react-native';
+import { Check, Clock, Archive, ChevronRight, ExternalLink } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '../theme/useTheme';
 import { TYPOGRAPHY, SPACING, RADIUS } from '../theme/colors';
@@ -183,7 +183,11 @@ export default function ActionCard({
           <Pressable
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              onPrimaryPress(item);
+              if (item.extractedUrl) {
+                Linking.openURL(item.extractedUrl).catch(console.error);
+              } else {
+                onPrimaryPress(item);
+              }
             }}
             style={({ pressed }) => [
               styles.primaryButton,
@@ -193,7 +197,11 @@ export default function ActionCard({
             <Text style={styles.primaryText} numberOfLines={1}>
               {item.suggestedAction}
             </Text>
-            <ChevronRight size={14} color="#FFF" strokeWidth={2.8} />
+            {item.extractedUrl ? (
+              <ExternalLink size={14} color="#FFF" strokeWidth={2.4} />
+            ) : (
+              <ChevronRight size={14} color="#FFF" strokeWidth={2.8} />
+            )}
           </Pressable>
         </View>
       </View>
