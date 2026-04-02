@@ -5,7 +5,7 @@
  * and large action buttons — all themed for Light / Dark.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { ScrollView, StyleSheet, Text, View, Pressable, Image } from 'react-native';
 import { ArrowLeft, ChevronRight } from 'lucide-react-native';
@@ -29,12 +29,20 @@ export default function ActionDetailScreen() {
     updateQueueItem, 
     completeQueueItem, 
     archiveQueueItem, 
-    snoozeQueueItem 
+    snoozeQueueItem,
+    markAsViewed
   } = useQueue();
   const { palette, isDark } = useTheme();
 
   const [showOCR, setShowOCR] = useState(false);
   const item = getItemById(itemId);
+
+  // ── Mark as viewed ──
+  useEffect(() => {
+    if (itemId) {
+      markAsViewed(itemId);
+    }
+  }, [itemId, markAsViewed]);
 
   // ── Handlers ──
   const handleUpdate = async (updates) => {

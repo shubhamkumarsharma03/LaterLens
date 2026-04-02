@@ -25,6 +25,7 @@ function normalizeItem(item) {
     notes: item?.notes || '',
     source: item?.source || 'Screenshot',
     tags: item?.tags || [],
+    viewed: item?.viewed || false,
   };
 }
 
@@ -151,6 +152,16 @@ export function QueueProvider({ children }) {
     [state.items]
   );
 
+  const markAsViewed = useCallback(
+    async (itemId) => {
+      const item = state.items.find((i) => i.id === itemId);
+      if (item && !item.viewed) {
+        return updateQueueItem(itemId, { viewed: true });
+      }
+    },
+    [state.items, updateQueueItem]
+  );
+
   const removeQueueItem = useCallback(
     async (itemId) => {
       const nextQueue = state.items.filter((item) => item.id !== itemId);
@@ -216,6 +227,7 @@ export function QueueProvider({ children }) {
       reviveDueSnoozed,
       removeQueueItem,
       updateQueueItem,
+      markAsViewed,
       getItemById,
       bulkDelete,
       bulkUpdateStatus,
@@ -234,6 +246,7 @@ export function QueueProvider({ children }) {
       reviveDueSnoozed,
       removeQueueItem,
       updateQueueItem,
+      markAsViewed,
       getItemById,
       bulkDelete,
       bulkUpdateStatus,

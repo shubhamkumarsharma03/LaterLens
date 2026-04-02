@@ -189,9 +189,7 @@ function MainTabNavigator() {
   const { palette, isDark } = useTheme();
   const { queueItems, allItems } = useQueue();
 
-  const homeBadge = queueItems.length > 0 ? queueItems.length : null;
-  const newItems = allItems.filter(i => i.status === 'queued' || i.status === 'snoozed').length;
-  const collectionsBadge = newItems > 0 ? newItems : null;
+  const homeBadge = queueItems.filter((i) => !i.viewed).length;
   const isMonday = new Date().getDay() === 1;
   const insightsBadge = isMonday ? '!' : null;
 
@@ -228,7 +226,6 @@ function MainTabNavigator() {
       <Tab.Screen 
         name="Collections" 
         component={CollectionsStackNavigator} 
-        options={{ tabBarBadge: collectionsBadge }}
       />
       <Tab.Screen name="Ask AI" component={AskAIStackNavigator} />
       <Tab.Screen 
