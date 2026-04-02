@@ -47,6 +47,7 @@ import {
 } from '../../services/aiProcessingEngine';
 import ActionCard from '../../components/ActionCard';
 import PermissionsScreen from './PermissionsScreen';
+import EmptyState from '../../components/shared/EmptyState';
 import { HOME_ROUTES } from '../../navigation/routeNames';
 import { useQueue } from '../../state/QueueContext';
 import { useAuth } from '../../state/AuthContext';
@@ -203,79 +204,7 @@ function UndoToast({ visible, message, onUndo, onDismiss, palette }) {
 
 // ─── Beautiful Empty State with Streak ───────────────────────
 
-function EmptyState({ palette, isDark, streakDays }) {
-  const float = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(float, {
-          toValue: -10,
-          duration: 2200,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(float, {
-          toValue: 0,
-          duration: 2200,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-      ])
-    ).start();
-  }, [float]);
-
-  return (
-    <View
-      style={[
-        styles.emptyContainer,
-        { backgroundColor: palette.emptyBg, borderColor: palette.border },
-      ]}
-    >
-      <Animated.View style={[styles.emptyIconWrap, { transform: [{ translateY: float }] }]}>
-        <View
-          style={[
-            styles.emptyIconBg,
-            {
-              backgroundColor: isDark
-                ? 'rgba(129,140,248,0.12)'
-                : 'rgba(99,102,241,0.08)',
-            },
-          ]}
-        >
-          <Inbox size={36} color={palette.primary} strokeWidth={1.5} />
-        </View>
-      </Animated.View>
-
-      <Text style={[TYPOGRAPHY.subtitle, { color: palette.textPrimary, marginTop: SPACING.md }]}>
-        You're all caught up!
-      </Text>
-      <Text
-        style={[
-          TYPOGRAPHY.body,
-          {
-            color: palette.textSecondary,
-            textAlign: 'center',
-            marginTop: SPACING.xs,
-            maxWidth: 280,
-          },
-        ]}
-      >
-        Take a screenshot to automatically queue a new action.
-      </Text>
-
-      {/* Streak counter */}
-      {streakDays > 0 && (
-        <View style={[styles.streakBadge, { backgroundColor: isDark ? 'rgba(251,191,36,0.12)' : '#FFFBEB' }]}>
-          <Flame size={14} color="#D97706" strokeWidth={2.2} />
-          <Text style={[TYPOGRAPHY.caption, { color: '#D97706', marginLeft: 4, fontWeight: '700' }]}>
-            {streakDays} day{streakDays !== 1 ? 's' : ''} streak — empty queue!
-          </Text>
-        </View>
-      )}
-    </View>
-  );
-}
+// Removed inline EmptyState in favor of shared component
 
 // ─── Older Items Fold ────────────────────────────────────────
 
@@ -388,21 +317,29 @@ export default function HomeQueueScreen() {
       }
 
       setHasPermission(true);
-      const uri = await fetchLatestScreenshotUri();
+      const assets = await fetchLatestScreenshotAssets(allItems.length === 0 ? 10 : 20);
 
-      if (!uri) {
+      if (!assets || assets.length === 0) {
         setProcessingMessage('No screenshots found yet.');
         return;
       }
 
-      const isDuplicate = allItems.some((item) => item.imageUri === uri);
-      if (isDuplicate) {
-        console.log('[Media] Screenshot already processed:', uri);
-        setProcessingMessage('Latest screenshot already processed.');
+      const newAssets = assets.filter(asset => 
+        !allItems.some(item => item.assetId === asset.id || item.imageUri === asset.uri)
+      );
+
+      if (newAssets.length === 0) {
+        setProcessingMessage('Everything is up to date.');
         return;
       }
 
-      await processScreenshotWithAI(uri);
+      for (let i = 0; i < newAssets.length; i++) {
+        const asset = newAssets[i];
+        if (newAssets.length > 1) {
+          setProcessingMessage(`Processing ${i + 1}/${newAssets.length} screenshots…`);
+        }
+        await processScreenshotWithAI(asset);
+      }
     } catch (error) {
       console.log('[Media] Failed to initialize media flow:', error);
       setHasPermission(false);
@@ -412,7 +349,9 @@ export default function HomeQueueScreen() {
     }
   };
 
-  const processScreenshotWithAI = async (imageUri) => {
+  const processScreenshotWithAI = async (asset) => {
+    const imageUri = asset.uri;
+    const assetId = asset.id;
     try {
       setProcessingMessage('Running on-device OCR…');
       const extractedText = await extractTextFromImage(imageUri);
@@ -422,9 +361,10 @@ export default function HomeQueueScreen() {
       const metadata = await analyzeScreenshotContext(extractedText);
 
       const queueItem = {
-        id: `${Date.now()}`,
+        id: `${Date.now()}-${assetId}`,
+        assetId,
         imageUri,
-        timestamp: Date.now(),
+        timestamp: asset.creationTime || Date.now(),
         contentType: metadata.contentType,
         intent: metadata.intent,
         tags: metadata.tags,
@@ -511,50 +451,53 @@ export default function HomeQueueScreen() {
 
   // ─── Media helpers ──
 
-  const fetchLatestScreenshotUri = async () => {
+  const fetchLatestScreenshotAssets = async (limit = 1) => {
     try {
       const screenshotAlbum = await findScreenshotAlbum();
 
       if (!screenshotAlbum) {
         console.log('[Media] Screenshot album not found.');
-        return null;
+        return [];
       }
 
       const assetsPage = await MediaLibrary.getAssetsAsync({
-        first: 50,
+        first: limit + 10, // Fetch a bit more to handle potential filters
         album: screenshotAlbum,
         mediaType: [MediaLibrary.MediaType.photo],
+        sortBy: [[MediaLibrary.SortBy.creationTime, false]], // Sort newest first directly
       });
 
       if (!assetsPage.assets.length) {
         console.log('[Media] Screenshot album found but it is empty:', screenshotAlbum.title);
-        return null;
+        return [];
       }
 
-      const latestAsset = [...assetsPage.assets].sort(
-        (a, b) => (b.creationTime || 0) - (a.creationTime || 0)
-      )[0];
+      const latestAssets = assetsPage.assets.slice(0, limit);
 
-      const assetInfo = await MediaLibrary.getAssetInfoAsync(latestAsset);
-      const resolvedUri = assetInfo.localUri || assetInfo.uri || latestAsset.uri;
+      const resolvedAssets = [];
+      for (const asset of latestAssets) {
+        const assetInfo = await MediaLibrary.getAssetInfoAsync(asset);
+        resolvedAssets.push({
+          id: asset.id,
+          uri: assetInfo.localUri || assetInfo.uri || asset.uri,
+          creationTime: asset.creationTime,
+        });
+      }
 
-      console.log('[Media] Screenshot album:', screenshotAlbum.title);
-      console.log('[Media] Latest screenshot URI:', resolvedUri);
-
-      return resolvedUri;
+      return resolvedAssets;
     } catch (error) {
-      console.log('[Media] Error fetching latest screenshot:', error);
-      return null;
+      console.log('[Media] Error fetching screenshot assets:', error);
+      return [];
     }
   };
 
   const findScreenshotAlbum = async () => {
-    const screenshotNameCandidates = ['screenshots', 'screenshot'];
+    const screenshotNameCandidates = ['screenshots', 'screenshot', 'captures', 'images'];
 
     const findInAlbums = (albums) =>
       albums.find((album) => {
         const title = (album.title || '').toLowerCase();
-        return screenshotNameCandidates.some((candidate) => title.includes(candidate));
+        return screenshotNameCandidates.some((candidate) => title === candidate || title.includes(candidate));
       });
 
     let albums = [];
@@ -720,7 +663,14 @@ export default function HomeQueueScreen() {
         )}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
-        ListEmptyComponent={<EmptyState palette={palette} isDark={isDark} streakDays={streakDays} />}
+        ListEmptyComponent={
+          <EmptyState 
+            title="All quiet here" 
+            subtitle="Take a screenshot or tap 'Process Latest' to sync your recent activity."
+            onAction={initializeMediaFlow}
+            actionLabel="Sync Recent"
+          />
+        }
         ListFooterComponent={
           olderItems.length > 0 ? (
             <OlderItemsFold

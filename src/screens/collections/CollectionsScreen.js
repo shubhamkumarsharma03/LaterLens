@@ -7,6 +7,8 @@ import {
   View,
   Pressable,
   FlatList,
+  Image,
+  Alert,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -16,6 +18,7 @@ import { COLLECTION_ROUTES } from '../../navigation/routeNames';
 import { useQueue } from '../../state/QueueContext';
 import { getCategoryIcon, UI_ICONS } from '../../utils/categoryIcons';
 import { SMART_COLLECTIONS } from '../../services/mockData';
+import EmptyState from '../../components/shared/EmptyState';
 import { Search, ChevronDown, LayoutGrid, List, Clock, Sparkles, BookOpen } from 'lucide-react-native';
 
 /**
@@ -29,6 +32,7 @@ export default function CollectionsScreen() {
   const [query, setQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('All');
   const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'list'
+  const [sortBy, setSortBy] = useState('Newest'); // 'Newest', 'Oldest', 'Name'
 
   const filters = useMemo(() => {
     const cats = new Set(collectionItems.map(i => i.contentType || 'Uncategorized'));
@@ -50,7 +54,6 @@ export default function CollectionsScreen() {
     // 2. Then, grouped by category
     const map = filtered.reduce((acc, item) => {
       const key = item.contentType || 'Uncategorized';
-      // If active filter is on, and item category doesn't match, we skip unless filter is 'All'
       if (activeFilter !== 'All' && key !== activeFilter) return acc;
 
       if (!acc[key]) {
@@ -63,8 +66,19 @@ export default function CollectionsScreen() {
       return acc;
     }, {});
 
-    return Object.values(map).sort((a, b) => b.count - a.count);
-  }, [collectionItems, query, activeFilter]);
+    let results = Object.values(map);
+
+    // 3. Sorting
+    if (sortBy === 'Newest') {
+      results.sort((a, b) => b.items[0]?.timestamp - a.items[0]?.timestamp);
+    } else if (sortBy === 'Oldest') {
+      results.sort((a, b) => a.items[0]?.timestamp - b.items[0]?.timestamp);
+    } else {
+      results.sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    return results;
+  }, [collectionItems, query, activeFilter, sortBy]);
 
   const smartCollections = useMemo(() => {
     // Real logic to group by tags
@@ -89,7 +103,10 @@ export default function CollectionsScreen() {
     ).length;
   }, [collectionItems]);
 
-  const recentItems = useMemo(() => collectionItems.slice(0, 5), [collectionItems]);
+  const recentItems = useMemo(() => {
+    // Already sorted by newest in QueueContext
+    return collectionItems.slice(0, 6);
+  }, [collectionItems]);
 
   // Headers & Subtitles
   const renderHeader = () => (
@@ -145,8 +162,14 @@ export default function CollectionsScreen() {
       </ScrollView>
 
       <View style={styles.sortToggleRow}>
-        <Pressable style={styles.sortDropdown}>
-          <Text style={[styles.sortText, { color: palette.textSecondary }]}>Sort by: Newest</Text>
+        <Pressable 
+          style={styles.sortDropdown}
+          onPress={() => {
+            const next = sortBy === 'Newest' ? 'Oldest' : sortBy === 'Oldest' ? 'Name' : 'Newest';
+            setSortBy(next);
+          }}
+        >
+          <Text style={[styles.sortText, { color: palette.textSecondary }]}>Sort by: {sortBy}</Text>
           <ChevronDown size={14} color={palette.textSecondary} />
         </Pressable>
         <View style={styles.viewToggles}>
@@ -161,6 +184,28 @@ export default function CollectionsScreen() {
     </View>
   );
 
+  const SmartThumbnail = ({ uri, contentType, style }) => {
+    const [failed, setFailed] = useState(false);
+    const CategoryIcon = getCategoryIcon(contentType);
+    const { palette, isDark } = useTheme();
+
+    if (!uri || failed) {
+      return (
+        <View style={[style, { alignItems: 'center', justifyContent: 'center', backgroundColor: isDark ? 'rgba(129,140,248,0.1)' : 'rgba(99,102,241,0.06)' }]}>
+           <CategoryIcon size={18} color={palette.primary} strokeWidth={1.8} />
+        </View>
+      );
+    }
+    return (
+      <Image 
+        source={{ uri }} 
+        style={style} 
+        onError={() => setFailed(true)}
+        resizeMode="cover"
+      />
+    );
+  };
+
   // Recent Strip
   const renderRecentStrip = () => (
     <View style={styles.section}>
@@ -170,15 +215,24 @@ export default function CollectionsScreen() {
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.recentScroll}>
         {recentItems.map((item, idx) => (
-          <Pressable key={item.id} style={styles.recentItem}>
-            <View style={[styles.recentThumb, { backgroundColor: palette.border }]}>
+          <Pressable 
+            key={item.id} 
+            style={styles.recentItem}
+            onPress={() => navigation.navigate(COLLECTION_ROUTES.CATEGORY, { contentType: item.contentType, initialItemId: item.id })}
+          >
+            <View style={styles.recentThumb}>
+               <SmartThumbnail 
+                 uri={item.imageUri || item.thumbnail} 
+                 contentType={item.contentType} 
+                 style={styles.fullThumb} 
+               />
                {idx === 0 && (
                  <View style={[styles.justProcessedBadge, { backgroundColor: palette.primary }]}>
                    <Text style={styles.justProcessedText}>NEW</Text>
                  </View>
                )}
             </View>
-            <Text style={styles.recentTime} numberOfLines={1}>Just now</Text>
+            <Text style={styles.recentTime} numberOfLines={1}>{item.summary || 'Analyze…'}</Text>
           </Pressable>
         ))}
       </ScrollView>
@@ -190,7 +244,10 @@ export default function CollectionsScreen() {
     const CategoryIcon = getCategoryIcon(item.name);
     return (
       <Pressable
-        style={[styles.categoryCard, { backgroundColor: palette.card, borderColor: palette.border }]}
+        style={[
+          styles.categoryCard, 
+          { backgroundColor: palette.card, borderColor: palette.border, width: viewMode === 'grid' ? '48%' : '100%' }
+        ]}
         onPress={() => navigation.navigate(COLLECTION_ROUTES.CATEGORY, { contentType: item.name })}
       >
         <View style={styles.cardHeader}>
@@ -203,8 +260,17 @@ export default function CollectionsScreen() {
           </View>
         </View>
         <View style={styles.thumbStrip}>
-          {[0, 1, 2].map((i) => (
-            <View key={i} style={[styles.miniThumb, { backgroundColor: palette.background, borderColor: palette.border }]} />
+          {item.items.map((it, i) => (
+            <SmartThumbnail 
+              key={i} 
+              uri={it.imageUri || it.thumbnail} 
+              contentType={it.contentType} 
+              style={[styles.miniThumb, { borderColor: palette.border }]} 
+            />
+          ))}
+          {/* Fill remaining with empty squares if less than 3 */}
+          {Array(Math.max(0, 3 - item.items.length)).fill(0).map((_, i) => (
+             <View key={`empty-${i}`} style={[styles.miniThumb, { backgroundColor: palette.background, borderColor: palette.border }]} />
           ))}
         </View>
       </Pressable>
@@ -214,55 +280,69 @@ export default function CollectionsScreen() {
   return (
     <ScrollView style={[styles.container, { backgroundColor: palette.background }]} showsVerticalScrollIndicator={false}>
       {renderHeader()}
-      {renderControlBar()}
-      {renderRecentStrip()}
-
-      <View style={styles.gridSection}>
-        <Text style={[styles.sectionTitleGrid, { color: palette.textSecondary }]}>Category cards grid</Text>
-        <FlatList
-          data={groupedCategories}
-          renderItem={renderCategoryCard}
-          keyExtractor={(item) => item.name}
-          numColumns={2}
-          scrollEnabled={false}
-          columnWrapperStyle={styles.columnWrapper}
+      
+      {collectionItems.length === 0 ? (
+        <EmptyState 
+          title="Your library is a blank canvas" 
+          subtitle="Screenshots you take will be automatically categorized and appear here."
+          icon={Sparkles}
         />
-      </View>
+      ) : (
+        <>
+          {renderControlBar()}
+          {renderRecentStrip()}
 
-      {/* Smart Collections */}
-      {smartCollections.length > 0 && (
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Sparkles size={16} color={palette.primary} />
-            <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>Smart collections</Text>
+          <View style={styles.gridSection}>
+            <Text style={[styles.sectionTitleGrid, { color: palette.textSecondary }]}>
+              {viewMode === 'grid' ? 'Category cards grid' : 'Category list view'}
+            </Text>
+            <FlatList
+              data={groupedCategories}
+              renderItem={renderCategoryCard}
+              keyExtractor={(item) => item.name}
+              numColumns={viewMode === 'grid' ? 2 : 1}
+              key={viewMode} // Force full re-render on toggle
+              scrollEnabled={false}
+              columnWrapperStyle={viewMode === 'grid' ? styles.columnWrapper : null}
+            />
           </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.recentScroll}>
-            {smartCollections.map((c) => (
-              <Pressable key={c.id} style={[styles.smartCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
-                 <View style={styles.smartBadge}>
-                    <Sparkles size={10} color="#FFF" />
-                 </View>
-                 <Text style={[styles.smartName, { color: palette.textPrimary }]}>{c.name}</Text>
-                 <Text style={[styles.smartCount, { color: palette.textSecondary }]}>{c.count} items</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-        </View>
+
+          {/* Smart Collections */}
+          {smartCollections.length > 0 && (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Sparkles size={16} color={palette.primary} />
+                <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>Smart collections</Text>
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.recentScroll}>
+                {smartCollections.map((c) => (
+                  <Pressable key={c.id} style={[styles.smartCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
+                     <View style={styles.smartBadge}>
+                        <Sparkles size={10} color="#FFF" />
+                     </View>
+                     <Text style={[styles.smartName, { color: palette.textPrimary }]}>{c.name}</Text>
+                     <Text style={[styles.smartCount, { color: palette.textSecondary }]}>{c.count} items</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+
+          {/* Spaced Repetition */}
+          <View style={[styles.spacedRepSection, { backgroundColor: palette.primaryLight }]}>
+            <View style={styles.spacedRepContent}>
+              <View style={styles.spacedRepHeader}>
+                <BookOpen size={18} color={palette.primary} />
+                <Text style={[styles.spacedRepTitle, { color: palette.primary }]}>Spaced repetition queue</Text>
+              </View>
+              <Text style={[styles.spacedRepSub, { color: palette.textSecondary }]}>Review study screenshots today. Grow automatically.</Text>
+            </View>
+            <View style={[styles.spacedRepCount, { backgroundColor: palette.primary }]}>
+              <Text style={styles.spacedRepCountText}>{spacedReviewCount}</Text>
+            </View>
+          </View>
+        </>
       )}
-
-      {/* Spaced Repetition */}
-      <View style={[styles.spacedRepSection, { backgroundColor: palette.primaryLight }]}>
-        <View style={styles.spacedRepContent}>
-          <View style={styles.spacedRepHeader}>
-            <BookOpen size={18} color={palette.primary} />
-            <Text style={[styles.spacedRepTitle, { color: palette.primary }]}>Spaced repetition queue</Text>
-          </View>
-          <Text style={[styles.spacedRepSub, { color: palette.textSecondary }]}>Review study screenshots today. Grow automatically.</Text>
-        </View>
-        <View style={[styles.spacedRepCount, { backgroundColor: palette.primary }]}>
-          <Text style={styles.spacedRepCountText}>{spacedReviewCount}</Text>
-        </View>
-      </View>
 
       <View style={{ height: 40 }} />
     </ScrollView>
@@ -428,11 +508,15 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   categoryCard: {
-    width: '48%',
     borderRadius: RADIUS.lg,
     borderWidth: 1,
     padding: 12,
     marginBottom: SPACING.md,
+  },
+  fullThumb: {
+    width: '100%',
+    height: '100%',
+    borderRadius: RADIUS.sm,
   },
   cardHeader: {
     flexDirection: 'row',

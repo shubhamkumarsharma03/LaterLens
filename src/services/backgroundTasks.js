@@ -17,91 +17,119 @@ Notifications.setNotificationHandler({
   }),
 });
 
-async function getLatestScreenshotUri() {
+async function getRecentScreenshotAssets(limit = 5) {
   let albums = [];
+  const screenshotNameCandidates = ['screenshots', 'screenshot', 'captures', 'images'];
+
   try {
     albums = await MediaLibrary.getAlbumsAsync();
     if (Platform.OS === 'ios') {
-      // iOS requires smart albums explicitly
       const smart = await MediaLibrary.getAlbumsAsync({ includeSmartAlbums: true });
       albums = [...albums, ...smart];
     }
   } catch (e) {
     console.log('[BackgroundTask] Failed to load albums', e);
-    return null;
+    return [];
   }
 
-  const screenshotAlbum = albums.find(a => 
-    (a.title || '').toLowerCase().includes('screenshot')
-  );
-  
-  if (!screenshotAlbum) return null;
+  const screenshotAlbum = albums.find(a => {
+    const title = (a.title || '').toLowerCase();
+    return screenshotNameCandidates.some(c => title === c || title.includes(c));
+  });
+
+  if (!screenshotAlbum) return [];
 
   let assetsPage;
   try {
     assetsPage = await MediaLibrary.getAssetsAsync({
-      first: 10,
+      first: limit + 5,
       album: screenshotAlbum,
       mediaType: [MediaLibrary.MediaType.photo],
+      sortBy: [[MediaLibrary.SortBy.creationTime, false]],
     });
-  } catch (e) { return null; }
-
-  if (!assetsPage || !assetsPage.assets.length) return null;
-
-  const latestAsset = assetsPage.assets.sort((a, b) => (b.creationTime || 0) - (a.creationTime || 0))[0];
-  
-  try {
-    const assetInfo = await MediaLibrary.getAssetInfoAsync(latestAsset);
-    return assetInfo.localUri || assetInfo.uri || latestAsset.uri;
   } catch (e) {
-    return latestAsset.uri;
+    return [];
   }
+
+  if (!assetsPage || !assetsPage.assets.length) return [];
+
+  const assets = assetsPage.assets.slice(0, limit);
+  const resolved = [];
+
+  for (const asset of assets) {
+    try {
+      const assetInfo = await MediaLibrary.getAssetInfoAsync(asset);
+      resolved.push({
+        id: asset.id,
+        uri: assetInfo.localUri || assetInfo.uri || asset.uri,
+        creationTime: asset.creationTime,
+      });
+    } catch (e) {
+      resolved.push({
+        id: asset.id,
+        uri: asset.uri,
+        creationTime: asset.creationTime,
+      });
+    }
+  }
+
+  return resolved;
 }
 
 TaskManager.defineTask(BACKGROUND_SCREENSHOT_TASK, async () => {
   console.log('[BackgroundTask] Firing silent screenshot scan...');
   try {
-    const uri = await getLatestScreenshotUri();
-    if (!uri) {
+    const assets = await getRecentScreenshotAssets(3); // Limit background processing to 3 at a time
+    if (!assets || assets.length === 0) {
       return BackgroundFetch.BackgroundFetchResult.NoData;
     }
 
     const queue = await getActionQueue();
-    if (queue.some(item => item.imageUri === uri)) {
+    const newAssets = assets.filter(asset => 
+      !queue.some(item => item.assetId === asset.id || item.imageUri === asset.uri)
+    );
+
+    if (newAssets.length === 0) {
       return BackgroundFetch.BackgroundFetchResult.NoData;
     }
 
-    console.log('[BackgroundTask] Found new screenshot, initiating AI context flow...');
-    const extractedText = await extractTextFromImage(uri);
-    const metadata = await analyzeScreenshotContext(extractedText);
-    
-    const queueItem = {
-      id: `${Date.now()}`,
-      imageUri: uri,
-      timestamp: Date.now(),
-      contentType: metadata.contentType,
-      intent: metadata.intent,
-      tags: metadata.tags,
-      suggestedAction: metadata.suggestedAction,
-      summary: metadata.summary,
-      extractedUrl: metadata.extractedUrl || null,
-      status: 'queued',
-    };
+    console.log(`[BackgroundTask] Found ${newAssets.length} new screenshots...`);
 
-    await saveActionItem(queueItem);
-    console.log('[BackgroundTask] Action queued successfully.');
+    for (const asset of newAssets) {
+      const uri = asset.uri;
+      const assetId = asset.id;
 
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: 'LaterLens: Action Saved',
-        body: `Analyzed a ${metadata.contentType} screenshot: ${metadata.suggestedAction}`,
-      },
-      trigger: null, // deliver immediately
-    });
+      const extractedText = await extractTextFromImage(uri);
+      const metadata = await analyzeScreenshotContext(extractedText);
+      
+      const queueItem = {
+        id: `${Date.now()}-${assetId}`,
+        assetId,
+        imageUri: uri,
+        timestamp: asset.creationTime || Date.now(),
+        contentType: metadata.contentType,
+        intent: metadata.intent,
+        tags: metadata.tags,
+        suggestedAction: metadata.suggestedAction,
+        summary: metadata.summary,
+        extractedUrl: metadata.extractedUrl || null,
+        status: 'queued',
+      };
+
+      await saveActionItem(queueItem);
+
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: 'LaterLens: Action Saved',
+          body: `Analyzed a ${metadata.contentType} screenshot: ${metadata.suggestedAction}`,
+        },
+        trigger: null,
+      });
+    }
 
     return BackgroundFetch.BackgroundFetchResult.NewData;
   } catch (error) {
-    console.log('[BackgroundTask] Error processing screenshot:', error);
+    console.log('[BackgroundTask] Error processing screenshots:', error);
     return BackgroundFetch.BackgroundFetchResult.Failed;
   }
 });

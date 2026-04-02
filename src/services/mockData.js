@@ -63,8 +63,8 @@ export function generateMockCollections(count = 20) {
       timestamp: now - Math.floor(Math.random() * 1000000000),
       status: 'queued',
       tags: [category.toLowerCase(), 'mock', 'saved'],
-      // In a real app, these would be image URIs
-      thumbnail: null, 
+      // In a real app, these would be local file URIs
+      thumbnail: `https://picsum.photos/seed/${i * 10}/400/600`, 
     });
   }
 

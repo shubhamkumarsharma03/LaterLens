@@ -45,11 +45,6 @@ export function QueueProvider({ children }) {
 
   const hydrateQueue = useCallback(async () => {
     let queue = await getActionQueue();
-    if (queue.length === 0) {
-      // For demonstration purposes, if the queue is empty, populate with mock data
-      queue = generateMockCollections(30);
-      await replaceActionQueue(queue);
-    }
     const normalized = sortNewest(queue.map(normalizeItem));
     dispatch({ type: QUEUE_ACTIONS.HYDRATE, payload: normalized });
     return normalized;

@@ -12,6 +12,8 @@ import {
 } from 'lucide-react-native';
 import { useQueue } from '../../state/QueueContext';
 import { useTheme } from '../../theme/useTheme';
+import EmptyState from '../../components/shared/EmptyState';
+import { BarChart2 } from 'lucide-react-native';
 import { TYPOGRAPHY, SPACING, RADIUS } from '../../theme/colors';
 import { calculateInsights } from '../../services/statsEngine';
 import MetricCard from '../../components/insights/MetricCard';
@@ -67,88 +69,100 @@ export default function InsightsScreen() {
         Your personal analytics dashboard.
       </Text>
 
-      {/* Period Selector */}
-      <View style={{ paddingHorizontal: SPACING.md }}>
-         <PeriodSelector active={period} onChange={setPeriod} palette={palette} />
-      </View>
+      {allItems.length === 0 ? (
+        <View style={{ flex: 1, paddingHorizontal: SPACING.md }}>
+          <EmptyState 
+            title="Insights require data" 
+            subtitle="Start capturing screenshots to unlock your personalized habits, completion rates, and streak analysis."
+            icon={BarChart2}
+          />
+        </View>
+      ) : (
+        <>
+          {/* Period Selector */}
+          <View style={{ paddingHorizontal: SPACING.md }}>
+             <PeriodSelector active={period} onChange={setPeriod} palette={palette} />
+          </View>
 
-      {/* Top Stats Row */}
-      <View style={styles.metricsRow}>
-        <MetricCard 
-          title="Screenshots saved"
-          value={stats.saved.count}
-          delta={period !== 'all' ? stats.saved.delta : undefined}
-          icon={Camera}
-        />
-        <MetricCard 
-          title="Actions taken"
-          value={stats.actions.count}
-          delta={period !== 'all' ? stats.actions.delta : undefined}
-          subtitle={`Completing ${stats.actions.rate.toFixed(0)}% of items`}
-          icon={CheckCircle2}
-          color={palette.completeTint}
-        />
-      </View>
+          {/* Top Stats Row */}
+          <View style={styles.metricsRow}>
+            <MetricCard 
+              title="Screenshots saved"
+              value={stats.saved.count}
+              delta={period !== 'all' ? stats.saved.delta : undefined}
+              icon={Camera}
+            />
+            <MetricCard 
+              title="Actions taken"
+              value={stats.actions.count}
+              delta={period !== 'all' ? stats.actions.delta : undefined}
+              subtitle={`Completing ${stats.actions.rate.toFixed(0)}% of items`}
+              icon={CheckCircle2}
+              color={palette.completeTint}
+            />
+          </View>
 
-      <View style={styles.metricsRow}>
-        <MetricCard 
-          title="Queue cleared days"
-          value={stats.clearedDays}
-          subtitle="Feeds the streak system"
-          icon={Calendar}
-          color={palette.urgencyAmber}
-        />
-        <MetricCard 
-          title="Study items reviewed"
-          value={Math.floor(stats.actions.count * 0.4)} // Simulated study specific count
-          subtitle="Motivates students"
-          icon={Zap}
-          color={palette.primary}
-        />
-      </View>
+          <View style={styles.metricsRow}>
+            <MetricCard 
+              title="Queue cleared days"
+              value={stats.clearedDays}
+              subtitle="Feeds the streak system"
+              icon={Calendar}
+              color={palette.urgencyAmber}
+            />
+            <MetricCard 
+              title="Study items reviewed"
+              value={Math.floor(stats.actions.count * 0.4)} // Simulated study specific count
+              subtitle="Motivates students"
+              icon={Zap}
+              color={palette.primary}
+            />
+          </View>
 
-      {/* Category Breakdown */}
-      <View style={{ paddingHorizontal: SPACING.md, marginTop: SPACING.lg }}>
-        <CategoryBarChart data={stats.categoryStats} />
-      </View>
+          {/* Category Breakdown */}
+          <View style={{ paddingHorizontal: SPACING.md, marginTop: SPACING.lg }}>
+            <CategoryBarChart data={stats.categoryStats} />
+          </View>
 
-      {/* Top Interests */}
-      <View style={[styles.interestsCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
-         <Text style={[styles.chartTitle, { color: palette.textPrimary }]}>Top interests list</Text>
-         <Text style={[TYPOGRAPHY.body, { color: palette.textSecondary, marginTop: 4 }]}>
-           Your top {stats.topInterests.length} topics this {period}: {stats.topInterests.join(', ')}.
-         </Text>
-         <View style={styles.aiBadge}>
-            <TrendingUp size={12} color={palette.primary} />
-            <Text style={[TYPOGRAPHY.tiny, { color: palette.primary, fontWeight: '700' }]}>AI Narrative</Text>
-         </View>
-      </View>
+          {/* Top Interests */}
+          <View style={[styles.interestsCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
+             <Text style={[styles.chartTitle, { color: palette.textPrimary }]}>Top interests list</Text>
+             <Text style={[TYPOGRAPHY.body, { color: palette.textSecondary, marginTop: 4 }]}>
+               Your top {stats.topInterests.length} topics this {period}: {stats.topInterests.join(', ')}.
+             </Text>
+             <View style={styles.aiBadge}>
+                <TrendingUp size={12} color={palette.primary} />
+                <Text style={[TYPOGRAPHY.tiny, { color: palette.primary, fontWeight: '700' }]}>AI Narrative</Text>
+             </View>
+          </View>
 
-      {/* Streak + Habit System */}
-      <View style={styles.metricsRow}>
-        <SevenDayStreakGrid grid={stats.streak.grid} currentStreak={stats.streak.count} />
-      </View>
-      
-      <View style={{ paddingHorizontal: SPACING.md }}>
-         <PersonalBestBanner best={stats.streak.best} />
-      </View>
+          {/* Streak + Habit System */}
+          <View style={styles.metricsRow}>
+            <SevenDayStreakGrid grid={stats.streak.grid} currentStreak={stats.streak.count} />
+          </View>
+          
+          <View style={{ paddingHorizontal: SPACING.md }}>
+             <PersonalBestBanner best={stats.streak.best} />
+          </View>
 
-      {/* Weekly Summary & Debt Gauge */}
-      <View style={styles.metricsRow}>
-         <View style={[styles.summaryCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
-            <Text style={[styles.chartTitle, { color: palette.textPrimary }]}>Weekly summary card</Text>
-            <Text style={[TYPOGRAPHY.body, { color: palette.textSecondary, marginTop: 8 }]}>
-              Last week you saved {stats.saved.count} things and acted on {stats.actions.count} — your best week yet.
-            </Text>
-         </View>
-         <DebtGauge value={stats.backlog} />
-      </View>
+          {/* Weekly Summary & Debt Gauge */}
+          <View style={styles.metricsRow}>
+             <View style={[styles.summaryCard, { backgroundColor: palette.card, borderColor: palette.border }]}>
+                <Text style={[styles.chartTitle, { color: palette.textPrimary }]}>Weekly summary card</Text>
+                <Text style={[TYPOGRAPHY.body, { color: palette.textSecondary, marginTop: 8 }]}>
+                  Last week you saved {stats.saved.count} things and acted on {stats.actions.count} — your best week yet.
+                </Text>
+             </View>
+             <DebtGauge value={stats.backlog} />
+          </View>
 
-      {/* Settings Tab Placeholder Link */}
-      <TouchableOpacity style={[styles.settingsBtn, { backgroundColor: palette.card, borderColor: palette.border }]}>
-         <Share2 size={20} color={palette.textPrimary} />
-         <Text style={[TYPOGRAPHY.bodyBold, { color: palette.textPrimary }]}>Share My Insights</Text>
-      </TouchableOpacity>
+          {/* Settings Tab Placeholder Link */}
+          <TouchableOpacity style={[styles.settingsBtn, { backgroundColor: palette.card, borderColor: palette.border }]}>
+             <Share2 size={20} color={palette.textPrimary} />
+             <Text style={[TYPOGRAPHY.bodyBold, { color: palette.textPrimary }]}>Share My Insights</Text>
+          </TouchableOpacity>
+        </>
+      )}
 
     </ScrollView>
   );
