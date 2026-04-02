@@ -54,6 +54,7 @@ import { useAuth } from '../../state/AuthContext';
 import { useTheme } from '../../theme/useTheme';
 import { TYPOGRAPHY, SPACING, RADIUS } from '../../theme/colors';
 import { User as UserIcon } from 'lucide-react-native';
+import { findScreenshotAlbum } from '../../services/mediaDiscovery';
 
 // ─── Helpers ─────────────────────────────────────────────────
 
@@ -489,43 +490,6 @@ export default function HomeQueueScreen() {
       console.log('[Media] Error fetching screenshot assets:', error);
       return [];
     }
-  };
-
-  const findScreenshotAlbum = async () => {
-    const screenshotNameCandidates = ['screenshots', 'screenshot', 'captures', 'images'];
-
-    const findInAlbums = (albums) =>
-      albums.find((album) => {
-        const title = (album.title || '').toLowerCase();
-        return screenshotNameCandidates.some((candidate) => title === candidate || title.includes(candidate));
-      });
-
-    let albums = [];
-
-    try {
-      albums = await MediaLibrary.getAlbumsAsync();
-    } catch (error) {
-      console.log('[Media] Failed to read albums:', error);
-      albums = [];
-    }
-
-    let screenshotAlbum = findInAlbums(albums);
-
-    if (!screenshotAlbum && Platform.OS === 'ios') {
-      try {
-        const smartAlbums = await MediaLibrary.getAlbumsAsync({ includeSmartAlbums: true });
-        screenshotAlbum = findInAlbums(smartAlbums);
-      } catch (error) {
-        console.log('[Media] Smart album lookup not available:', error);
-      }
-    }
-
-    console.log(
-      '[Media] Albums scanned:',
-      albums.map((album) => album.title).slice(0, 20)
-    );
-
-    return screenshotAlbum || null;
   };
 
   // ─── Split items: urgent vs older ──

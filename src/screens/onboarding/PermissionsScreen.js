@@ -10,6 +10,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import * as MediaLibrary from 'expo-media-library';
 import * as Notifications from 'expo-notifications';
 import * as Location from 'expo-location';
+import { Modal, FlatList } from 'react-native';
+import { getAllUserAlbums, findScreenshotAlbum } from '../../services/mediaDiscovery';
+import { saveScreenshotAlbum, getScreenshotAlbum } from '../../services/settingsStorage';
+import { Check } from 'lucide-react-native';
 
 export default function PermissionsScreen({ navigation }) {
   const { palette, typography } = useTheme();
@@ -18,6 +22,37 @@ export default function PermissionsScreen({ navigation }) {
     notifications: true,
     location: false,
   });
+
+  const [albums, setAlbums] = useState([]);
+  const [selectedAlbum, setSelectedAlbum] = useState({ id: null, title: 'Screenshots' });
+  const [isModalVisible, setIsModalVisible] = useState(false);
+
+  useEffect(() => {
+    loadInitialData();
+  }, []);
+
+  const loadInitialData = async () => {
+    // Load saved preference
+    const saved = await getScreenshotAlbum();
+    if (saved.albumTitle) {
+      setSelectedAlbum({ id: saved.albumId, title: saved.albumTitle });
+    } else {
+      // Auto-discover if none saved
+      const auto = await findScreenshotAlbum();
+      if (auto) setSelectedAlbum({ id: auto.id, title: auto.title });
+    }
+
+    // Pre-fetch all albums for the picker
+    const all = await getAllUserAlbums();
+    setAlbums(all);
+  };
+
+  const handleSelectAlbum = async (album) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSelectedAlbum({ id: album.id, title: album.title });
+    await saveScreenshotAlbum(album.id, album.title);
+    setIsModalVisible(false);
+  };
 
   const handleToggle = (key) => {
     setPermissions(prev => ({ ...prev, [key]: !prev[key] }));
@@ -93,15 +128,60 @@ export default function PermissionsScreen({ navigation }) {
           <FolderOpen size={20} color={palette.primary} strokeWidth={2} style={styles.folderIcon} />
           <View style={styles.folderContent}>
             <Text style={[styles.folderLabel, { color: palette.textPrimary, ...typography.bodyBold }]}>
-              Folder: /Screenshots
+              Folder: /{selectedAlbum.title}
             </Text>
-            <TouchableOpacity onPress={() => Alert.alert('Action', 'Opening native file picker...')}>
+            <TouchableOpacity onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setIsModalVisible(true);
+            }}>
               <Text style={[styles.folderLink, { color: palette.primary, ...typography.caption }]}>
                 Change folder (optional)
               </Text>
             </TouchableOpacity>
           </View>
         </OnboardingCard>
+
+        {/* Album Picker Modal */}
+        <Modal
+          visible={isModalVisible}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setIsModalVisible(false)}
+        >
+          <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
+            <View style={[styles.modalContent, { backgroundColor: palette.background, borderTopLeftRadius: 24, borderTopRightRadius: 24 }]}>
+              <View style={styles.modalHeader}>
+                <Text style={[styles.modalTitle, { color: palette.textPrimary, ...typography.title }]}>
+                  Select Folder
+                </Text>
+                <TouchableOpacity onPress={() => setIsModalVisible(false)}>
+                  <Text style={{ color: palette.primary, fontWeight: '700' }}>Done</Text>
+                </TouchableOpacity>
+              </View>
+              <FlatList
+                data={albums}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={styles.albumItem}
+                    onPress={() => handleSelectAlbum(item)}
+                  >
+                    <View style={styles.albumInfo}>
+                      <FolderOpen size={18} color={palette.textSecondary} style={{ marginRight: 12 }} />
+                      <Text style={[styles.albumTitle, { color: palette.textPrimary, ...typography.body }]}>
+                        {item.title}
+                      </Text>
+                    </View>
+                    {selectedAlbum.id === item.id && (
+                      <Check size={18} color={palette.primary} strokeWidth={3} />
+                    )}
+                  </TouchableOpacity>
+                )}
+                contentContainerStyle={{ paddingBottom: 40 }}
+              />
+            </View>
+          </View>
+        </Modal>
 
         <View style={styles.privacyNote}>
           <ShieldCheck size={16} color={palette.textSecondary} strokeWidth={2} style={styles.privacyIcon} />
@@ -195,5 +275,38 @@ const styles = StyleSheet.create({
   },
   buttonIcon: {
     marginLeft: 8,
+  },
+  /* Modal Styles */
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    height: '70%',
+    padding: 24,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 20,
+  },
+  albumItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#ccc',
+  },
+  albumInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  albumTitle: {
+    fontSize: 16,
   },
 });

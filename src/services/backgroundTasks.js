@@ -5,6 +5,7 @@ import * as MediaLibrary from 'expo-media-library';
 import { Platform } from 'react-native';
 import { getActionQueue, saveActionItem } from './actionQueueStorage';
 import { extractTextFromImage, analyzeScreenshotContext } from './aiProcessingEngine';
+import { findScreenshotAlbum } from './mediaDiscovery';
 
 const BACKGROUND_SCREENSHOT_TASK = 'BACKGROUND_SCREENSHOT_TASK';
 
@@ -18,63 +19,52 @@ Notifications.setNotificationHandler({
 });
 
 async function getRecentScreenshotAssets(limit = 5) {
-  let albums = [];
-  const screenshotNameCandidates = ['screenshots', 'screenshot', 'captures', 'images'];
-
   try {
-    albums = await MediaLibrary.getAlbumsAsync();
-    if (Platform.OS === 'ios') {
-      const smart = await MediaLibrary.getAlbumsAsync({ includeSmartAlbums: true });
-      albums = [...albums, ...smart];
-    }
-  } catch (e) {
-    console.log('[BackgroundTask] Failed to load albums', e);
-    return [];
-  }
+    const screenshotAlbum = await findScreenshotAlbum();
 
-  const screenshotAlbum = albums.find(a => {
-    const title = (a.title || '').toLowerCase();
-    return screenshotNameCandidates.some(c => title === c || title.includes(c));
-  });
+    if (!screenshotAlbum) return [];
 
-  if (!screenshotAlbum) return [];
-
-  let assetsPage;
-  try {
-    assetsPage = await MediaLibrary.getAssetsAsync({
-      first: limit + 5,
-      album: screenshotAlbum,
-      mediaType: [MediaLibrary.MediaType.photo],
-      sortBy: [[MediaLibrary.SortBy.creationTime, false]],
-    });
-  } catch (e) {
-    return [];
-  }
-
-  if (!assetsPage || !assetsPage.assets.length) return [];
-
-  const assets = assetsPage.assets.slice(0, limit);
-  const resolved = [];
-
-  for (const asset of assets) {
+    let assetsPage;
     try {
-      const assetInfo = await MediaLibrary.getAssetInfoAsync(asset);
-      resolved.push({
-        id: asset.id,
-        uri: assetInfo.localUri || assetInfo.uri || asset.uri,
-        creationTime: asset.creationTime,
+      assetsPage = await MediaLibrary.getAssetsAsync({
+        first: limit + 5,
+        album: screenshotAlbum,
+        mediaType: [MediaLibrary.MediaType.photo],
+        sortBy: [[MediaLibrary.SortBy.creationTime, false]],
       });
     } catch (e) {
-      resolved.push({
-        id: asset.id,
-        uri: asset.uri,
-        creationTime: asset.creationTime,
-      });
+      return [];
     }
-  }
 
-  return resolved;
+    if (!assetsPage || !assetsPage.assets.length) return [];
+
+    const assets = assetsPage.assets.slice(0, limit);
+    const resolved = [];
+
+    for (const asset of assets) {
+      try {
+        const assetInfo = await MediaLibrary.getAssetInfoAsync(asset);
+        resolved.push({
+          id: asset.id,
+          uri: assetInfo.localUri || assetInfo.uri || asset.uri,
+          creationTime: asset.creationTime,
+        });
+      } catch (e) {
+        resolved.push({
+          id: asset.id,
+          uri: asset.uri,
+          creationTime: asset.creationTime,
+        });
+      }
+    }
+
+    return resolved;
+  } catch (error) {
+    console.log('[BackgroundTask] Error fetching assets:', error);
+    return [];
+  }
 }
+
 
 TaskManager.defineTask(BACKGROUND_SCREENSHOT_TASK, async () => {
   console.log('[BackgroundTask] Firing silent screenshot scan...');
