@@ -140,7 +140,8 @@ export async function queryScreenshotLibrary(userMessage, allQueueItems) {
   const contextData = allQueueItems
     .map(
       (item) =>
-        `Date: ${new Date(item.timestamp).toLocaleDateString()}
+        `[ID: ${item.id}]
+Date: ${new Date(item.timestamp).toLocaleDateString()}
 Category: ${item.contentType}
 Summary: ${item.summary}
 Action: ${item.suggestedAction}
@@ -149,12 +150,14 @@ ${item.extractedUrl ? `URL: ${item.extractedUrl}` : ''}`
     )
     .join('\n\n');
 
-  const systemPrompt = `You are the LaterLens AI assistant. Your job is to answer questions based ONLY on the user's screenshot library context provided below. Be concise. If the user asks for something not in the context, accurately state you cannot find it. 
+  const systemPrompt = `You are the LaterLens AI assistant. Your job is to answer questions based ONLY on the user's screenshot library context provided below. Be concise.
+
+If the user asks for something specific, you MUST mention the relevant screenshots by their IDs at the end of your response in the format: [IDS: id1, id2, ...].
 
 USER'S SCREENSHOT LIBRARY:
 ${contextData}
 
-Answer the user's latest message succinctly.`;
+Answer the user's latest message succinctly. If relevant screenshots exist, always include the IDs tag.`;
 
   const response = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
     method: 'POST',

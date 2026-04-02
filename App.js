@@ -4,6 +4,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import AppNavigator from './src/navigation/AppNavigator';
 import { AuthProvider } from './src/state/AuthContext';
 import { QueueProvider } from './src/state/QueueContext';
+import { ChatProvider } from './src/state/ChatContext';
 import { registerBackgroundFetchAsync } from './src/services/backgroundTasks';
 
 export default function App() {
@@ -15,9 +16,11 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <AuthProvider>
         <QueueProvider>
-          <NavigationContainer>
-            <AppNavigator />
-          </NavigationContainer>
+          <ChatProvider>
+            <NavigationContainer>
+              <AppNavigator />
+            </NavigationContainer>
+          </ChatProvider>
         </QueueProvider>
       </AuthProvider>
     </GestureHandlerRootView>

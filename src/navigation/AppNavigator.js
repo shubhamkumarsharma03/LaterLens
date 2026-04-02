@@ -128,7 +128,7 @@ function AskAIStackNavigator() {
       <AskAIStack.Screen
         name={ASK_AI_ROUTES.HOME}
         component={AskAIScreen}
-        options={{ title: 'Ask AI' }}
+        options={{ title: 'LaterLens' }}
       />
       <AskAIStack.Screen
         name={ASK_AI_ROUTES.CHAT}

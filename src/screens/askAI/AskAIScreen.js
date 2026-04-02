@@ -1,110 +1,146 @@
-import { useState, useRef } from 'react';
-import { View, Text, StyleSheet, TextInput, FlatList, Pressable, KeyboardAvoidingView, Platform, ActivityIndicator, Keyboard } from 'react-native';
+import React, { useRef, useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  Pressable,
+  KeyboardAvoidingView,
+  Platform,
+  Alert,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Send, Sparkles } from 'lucide-react-native';
-import { useQueue } from '../../state/QueueContext';
+import { History, PlusCircle } from 'lucide-react-native';
+import * as Haptics from 'expo-haptics';
+
 import { useTheme } from '../../theme/useTheme';
+import { useQueue } from '../../state/QueueContext';
+import { useChat } from '../../state/ChatContext';
 import { TYPOGRAPHY, SPACING, RADIUS } from '../../theme/colors';
 import { queryScreenshotLibrary } from '../../services/aiProcessingEngine';
-import * as Haptics from 'expo-haptics';
+
+import ChatBubble from '../../components/askAI/ChatBubble';
+import ChatInput from '../../components/askAI/ChatInput';
+import TypingIndicator from '../../components/askAI/TypingIndicator';
+import SuggestedPrompts from '../../components/askAI/SuggestedPrompts';
 
 export default function AskAIScreen() {
   const { allItems } = useQueue();
-  const theme = useTheme();
-  const { palette, isDark } = theme;
+  const { messages, addMessage, clearHistory, isLoading } = useChat();
+  const { palette } = useTheme();
   const insets = useSafeAreaInsets();
   
-  const [messages, setMessages] = useState([
-    { id: 'initial', text: "Hi! I have your entire screenshot library memorized. What are you looking for?", sender: 'ai' }
-  ]);
-  const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const flatListRef = useRef(null);
 
-  const sendMessage = async () => {
-    if (!input.trim()) return;
+  const sendMessage = async (text) => {
+    const userMessage = {
+      id: Date.now().toString(),
+      text,
+      sender: 'user',
+      timestamp: Date.now(),
+    };
 
-    const userText = input.trim();
-    setInput('');
-    Keyboard.dismiss();
-
-    const newMessages = [...messages, { id: Date.now().toString(), text: userText, sender: 'user' }];
-    setMessages(newMessages);
+    addMessage(userMessage);
     setIsTyping(true);
 
     try {
-      const responseText = await queryScreenshotLibrary(userText, allItems);
-      setMessages((prev) => [...prev, { id: Date.now().toString(), text: responseText, sender: 'ai' }]);
+      const responseText = await queryScreenshotLibrary(text, allItems);
+      const aiMessage = {
+        id: (Date.now() + 1).toString(),
+        text: responseText,
+        sender: 'ai',
+        timestamp: Date.now(),
+      };
+      addMessage(aiMessage);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (error) {
-      setMessages((prev) => [...prev, { id: Date.now().toString(), text: "Sorry, I ran into an error accessing your library.", sender: 'error' }]);
+      const errorMessage = {
+        id: (Date.now() + 1).toString(),
+        text: "Sorry, I ran into an error accessing your library. Please check your connection.",
+        sender: 'ai',
+        timestamp: Date.now(),
+        isError: true,
+      };
+      addMessage(errorMessage);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     } finally {
       setIsTyping(false);
     }
   };
 
-  const renderBubble = ({ item }) => {
-    const isUser = item.sender === 'user';
-    const isError = item.sender === 'error';
-    
-    return (
-      <View style={[styles.bubbleWrapper, isUser ? styles.bubbleUserWrap : styles.bubbleAiWrap]}>
-        {!isUser && (
-          <View style={[styles.aiAvatar, { backgroundColor: palette.primaryLight }]}>
-            <Sparkles size={14} color={palette.primary} />
-          </View>
-        )}
-        <View style={[
-          styles.bubble, 
-          isUser ? [styles.bubbleUser, { backgroundColor: palette.primary }] : [styles.bubbleAi, { backgroundColor: palette.card, borderColor: palette.border }],
-          isError && { borderColor: '#EF4444', backgroundColor: '#FEF2F2' }
-        ]}>
-          <Text style={[TYPOGRAPHY.body, { color: isUser ? '#FFFFFF' : isError ? '#EF4444' : palette.textPrimary }]}>
-            {item.text}
-          </Text>
-        </View>
-      </View>
+  const handleNewChat = () => {
+    Alert.alert(
+      "New Chat",
+      "Reset the current conversation thread?",
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Reset", 
+          style: "destructive",
+          onPress: () => {
+            clearHistory();
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+          }
+        }
+      ]
     );
   };
+
+  const renderHeader = () => (
+    <View style={[styles.header, { paddingTop: SPACING.sm, backgroundColor: palette.background }]}>
+      <View style={styles.headerRow}>
+        <View>
+          <Text style={[TYPOGRAPHY.heroTitle, { color: palette.textPrimary }]}>Ask AI</Text>
+          <Text style={[TYPOGRAPHY.tiny, { color: palette.textSecondary }]}>Powered by Gemini 2.5 Flash</Text>
+        </View>
+        <View style={styles.headerActions}>
+          <Pressable 
+            style={({ pressed }) => [styles.headerBtn, { opacity: pressed ? 0.6 : 1 }]}
+            onPress={() => Alert.alert("History", "Conversation history coming soon!")}
+          >
+            <History size={22} color={palette.textPrimary} />
+          </Pressable>
+          <Pressable 
+            style={({ pressed }) => [styles.headerBtn, { opacity: pressed ? 0.6 : 1 }]}
+            onPress={handleNewChat}
+          >
+            <PlusCircle size={22} color={palette.textPrimary} />
+          </Pressable>
+        </View>
+      </View>
+    </View>
+  );
 
   return (
     <KeyboardAvoidingView 
       style={[styles.container, { backgroundColor: palette.background }]} 
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
     >
-      <View style={[styles.header, { paddingTop: insets.top, backgroundColor: palette.background }]}>
-        <Text style={[TYPOGRAPHY.heroTitle, { color: palette.textPrimary, paddingHorizontal: SPACING.md }]}>Ask AI</Text>
-      </View>
+      {renderHeader()}
 
       <FlatList
         ref={flatListRef}
         data={messages}
         keyExtractor={(i) => i.id}
-        renderItem={renderBubble}
+        renderItem={({ item }) => <ChatBubble message={item} />}
         contentContainerStyle={[styles.listContent, { paddingBottom: SPACING.xl }]}
         showsVerticalScrollIndicator={false}
         onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+        ListFooterComponent={isTyping ? <TypingIndicator /> : null}
       />
 
-      <View style={[styles.inputRow, { paddingBottom: insets.bottom + SPACING.md, backgroundColor: palette.card, borderTopColor: palette.border }]}>
-        <TextInput
-          style={[styles.input, { color: palette.textPrimary, backgroundColor: palette.background, borderColor: palette.border }]}
-          placeholder="e.g., What was the recipe about?"
-          placeholderTextColor={palette.textSecondary}
-          value={input}
-          onChangeText={setInput}
-          onSubmitEditing={sendMessage}
-          returnKeyType="send"
+      <View style={{ paddingBottom: insets.bottom }}>
+        {messages.length <= 1 && !isTyping && (
+          <SuggestedPrompts onSelect={sendMessage} />
+        )}
+        <ChatInput 
+          onSend={sendMessage} 
+          isTyping={isTyping} 
+          onAttachmentPress={() => Alert.alert("Attachment", "Screenshot analysis will be available in the next sync.")}
+          onVoicePress={() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)}
         />
-        <Pressable 
-          style={({ pressed }) => [styles.sendButton, { backgroundColor: palette.primary, opacity: pressed || input.trim().length === 0 ? 0.7 : 1 }]}
-          onPress={sendMessage}
-          disabled={input.trim().length === 0 || isTyping}
-        >
-          {isTyping ? <ActivityIndicator color="#FFF" size="small" /> : <Send size={18} color="#FFF" style={{ marginLeft: -2 }} />}
-        </Pressable>
       </View>
     </KeyboardAvoidingView>
   );
@@ -112,20 +148,26 @@ export default function AskAIScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: { paddingBottom: SPACING.sm, zIndex: 10 },
-  listContent: { padding: SPACING.md, gap: SPACING.md },
-  
-  bubbleWrapper: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: SPACING.sm },
-  bubbleUserWrap: { justifyContent: 'flex-end' },
-  bubbleAiWrap: { justifyContent: 'flex-start' },
-  
-  aiAvatar: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginRight: 8 },
-  bubble: { maxWidth: '80%', padding: SPACING.md, borderRadius: RADIUS.lg, borderWidth: StyleSheet.hairlineWidth },
-  
-  bubbleUser: { borderBottomRightRadius: 4, borderWidth: 0 },
-  bubbleAi: { borderBottomLeftRadius: 4 },
-  
-  inputRow: { flexDirection: 'row', alignItems: 'center', padding: SPACING.md, borderTopWidth: StyleSheet.hairlineWidth },
-  input: { flex: 1, paddingHorizontal: SPACING.md, height: 44, borderRadius: RADIUS.pill, borderWidth: StyleSheet.hairlineWidth, marginRight: SPACING.sm },
-  sendButton: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' }
+  header: { 
+    paddingHorizontal: SPACING.md,
+    paddingBottom: SPACING.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    zIndex: 10,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    gap: SPACING.md,
+  },
+  headerBtn: {
+    padding: SPACING.xs,
+  },
+  listContent: { 
+    paddingTop: SPACING.md,
+    gap: SPACING.xs, 
+  },
 });
