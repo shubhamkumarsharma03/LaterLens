@@ -5,6 +5,7 @@ export const ROOT_STACK = {
 export const HOME_ROUTES = {
   QUEUE: 'HomeQueue',
   DETAIL: 'ActionDetail',
+  PROFILE: 'Profile',
 };
 
 export const COLLECTION_ROUTES = {
@@ -24,4 +25,10 @@ export const INSIGHTS_ROUTES = {
   HOME: 'InsightsHome',
   STATS: 'InsightsStats',
   STREAK: 'InsightsStreak',
+};
+
+export const ONBOARDING_ROUTES = {
+  WELCOME: 'Welcome',
+  PERMISSIONS: 'Permissions',
+  PREFERENCES: 'Preferences',
 };

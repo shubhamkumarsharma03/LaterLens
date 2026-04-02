@@ -14,6 +14,7 @@ import { Home, FolderOpen, Sparkles, BarChart3 } from 'lucide-react-native';
 
 import HomeQueueScreen from '../screens/home/HomeQueueScreen';
 import ActionDetailScreen from '../screens/home/ActionDetailScreen';
+import ProfileScreen from '../screens/common/ProfileScreen';
 import CollectionsScreen from '../screens/collections/CollectionsScreen';
 import CollectionSearchScreen from '../screens/collections/CollectionSearchScreen';
 import CollectionCategoryScreen from '../screens/collections/CollectionCategoryScreen';
@@ -29,10 +30,15 @@ import {
   COLLECTION_ROUTES,
   HOME_ROUTES,
   INSIGHTS_ROUTES,
+  ROOT_STACK,
 } from './routeNames';
 import { useTheme } from '../theme/useTheme';
 import { RADIUS } from '../theme/colors';
+import OnboardingNavigator from './OnboardingNavigator';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useState, useEffect } from 'react';
 
+const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 const HomeStack = createNativeStackNavigator();
 const CollectionsStack = createNativeStackNavigator();
@@ -63,6 +69,11 @@ function HomeStackNavigator() {
         name={HOME_ROUTES.DETAIL}
         component={ActionDetailScreen}
         options={{ title: 'Action Detail' }}
+      />
+      <HomeStack.Screen
+        name={HOME_ROUTES.PROFILE}
+        component={ProfileScreen}
+        options={{ title: 'Profile' }}
       />
     </HomeStack.Navigator>
   );
@@ -165,6 +176,8 @@ function InsightsStackNavigator() {
 
 // ─── Tab icon map ────────────────────────────────────────────
 
+import { useQueue } from '../state/QueueContext';
+
 const TAB_ICONS = {
   Home,
   Collections: FolderOpen,
@@ -172,10 +185,15 @@ const TAB_ICONS = {
   Insights: BarChart3,
 };
 
-// ─── Root Navigator ──────────────────────────────────────────
-
-export default function AppNavigator() {
+function MainTabNavigator() {
   const { palette, isDark } = useTheme();
+  const { queueItems, allItems } = useQueue();
+
+  const homeBadge = queueItems.length > 0 ? queueItems.length : null;
+  const newItems = allItems.filter(i => i.status === 'queued' || i.status === 'snoozed').length;
+  const collectionsBadge = newItems > 0 ? newItems : null;
+  const isMonday = new Date().getDay() === 1;
+  const insightsBadge = isMonday ? '!' : null;
 
   return (
     <Tab.Navigator
@@ -202,11 +220,57 @@ export default function AppNavigator() {
         },
       })}
     >
-      <Tab.Screen name="Home" component={HomeStackNavigator} />
-      <Tab.Screen name="Collections" component={CollectionsStackNavigator} />
+      <Tab.Screen 
+        name="Home" 
+        component={HomeStackNavigator} 
+        options={{ tabBarBadge: homeBadge }}
+      />
+      <Tab.Screen 
+        name="Collections" 
+        component={CollectionsStackNavigator} 
+        options={{ tabBarBadge: collectionsBadge }}
+      />
       <Tab.Screen name="Ask AI" component={AskAIStackNavigator} />
-      <Tab.Screen name="Insights" component={InsightsStackNavigator} />
+      <Tab.Screen 
+        name="Insights" 
+        component={InsightsStackNavigator} 
+        options={{ tabBarBadge: insightsBadge }}
+      />
     </Tab.Navigator>
+  );
+}
+
+export default function AppNavigator() {
+  const [isLoading, setIsLoading] = useState(true);
+  const [showOnboarding, setShowOnboarding] = useState(true);
+
+  useEffect(() => {
+    checkOnboarding();
+  }, []);
+
+  const checkOnboarding = async () => {
+    try {
+      const value = await AsyncStorage.getItem('hasCompletedOnboarding');
+      if (value === 'true') {
+        setShowOnboarding(false);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (isLoading) return null; // Or a splash screen
+
+  return (
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      {showOnboarding ? (
+        <Stack.Screen name="Onboarding" component={OnboardingNavigator} />
+      ) : (
+        <Stack.Screen name={ROOT_STACK.MAIN_TABS} component={MainTabNavigator} />
+      )}
+    </Stack.Navigator>
   );
 }
 

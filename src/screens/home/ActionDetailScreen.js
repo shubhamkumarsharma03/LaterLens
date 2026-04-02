@@ -5,22 +5,42 @@
  * and large action buttons — all themed for Light / Dark.
  */
 
+import React, { useState } from 'react';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Check, Clock, Archive, ChevronRight, ArrowLeft, Tag } from 'lucide-react-native';
+import { ScrollView, StyleSheet, Text, View, Pressable, Image } from 'react-native';
+import { ArrowLeft, ChevronRight } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { useQueue } from '../../state/QueueContext';
 import { useTheme } from '../../theme/useTheme';
 import { TYPOGRAPHY, SPACING, RADIUS } from '../../theme/colors';
 
+// ── Components ──
+import OCRImageOverlay from './components/OCRImageOverlay';
+import EditableAIPanel from './components/EditableAIPanel';
+import ActionZone from './components/ActionZone';
+import UserNotesSection from './components/UserNotesSection';
+
 export default function ActionDetailScreen() {
   const navigation = useNavigation();
   const route = useRoute();
   const { itemId } = route.params || {};
-  const { getItemById, completeQueueItem, archiveQueueItem, snoozeQueueItem } = useQueue();
-  const { palette, isDark, getCategoryBadge: getBadge } = useTheme();
+  const { 
+    getItemById, 
+    updateQueueItem, 
+    completeQueueItem, 
+    archiveQueueItem, 
+    snoozeQueueItem 
+  } = useQueue();
+  const { palette, isDark } = useTheme();
 
+  const [showOCR, setShowOCR] = useState(false);
   const item = getItemById(itemId);
+
+  // ── Handlers ──
+  const handleUpdate = async (updates) => {
+    if (!item) return;
+    await updateQueueItem(item.id, updates);
+  };
 
   const handleComplete = async () => {
     if (!item) return;
@@ -39,14 +59,8 @@ export default function ActionDetailScreen() {
   const handleSnooze = async () => {
     if (!item) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    await snoozeQueueItem(item.id, 60);
+    await snoozeQueueItem(item.id, 60 * 24); // Snooze for 1 day by default
     navigation.goBack();
-  };
-
-  const handleSuggestedAction = () => {
-    if (!item) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    console.log('[ActionDetail] Suggested action pressed:', item.suggestedAction, item.id);
   };
 
   // ── Not found ──
@@ -54,12 +68,7 @@ export default function ActionDetailScreen() {
     return (
       <View style={[styles.emptyContainer, { backgroundColor: palette.background }]}>
         <Text style={[TYPOGRAPHY.title, { color: palette.textPrimary, marginBottom: SPACING.sm }]}>
-          Action not found
-        </Text>
-        <Text
-          style={[TYPOGRAPHY.body, { color: palette.textSecondary, textAlign: 'center', marginBottom: SPACING.lg }]}
-        >
-          This item may have been completed or archived already.
+          Item not found
         </Text>
         <Pressable
           style={[styles.backButton, { backgroundColor: palette.primary }]}
@@ -72,210 +81,129 @@ export default function ActionDetailScreen() {
     );
   }
 
-  const badge = getBadge(item.contentType);
-
   return (
     <ScrollView
       style={{ backgroundColor: palette.background }}
       contentContainerStyle={styles.container}
       showsVerticalScrollIndicator={false}
     >
-      {/* ── Hero Image ── */}
-      <View style={[styles.heroWrap, isDark ? { borderColor: palette.border, borderWidth: 1 } : {}]}>
-        <Image source={{ uri: item.imageUri }} style={styles.heroImage} />
-      </View>
+      {/* ── 1. Screenshot View ── */}
+      <OCRImageOverlay 
+        imageUri={item.imageUri} 
+        showOCR={showOCR} 
+        onToggleOCR={() => setShowOCR(!showOCR)} 
+      />
 
-      {/* ── Meta Row ── */}
-      <View style={styles.metaRow}>
-        <View style={[styles.badge, { backgroundColor: badge.bg }]}>
-          <Text style={[TYPOGRAPHY.badgeLabel, { color: badge.text }]}>
-            {item.contentType}
-          </Text>
-        </View>
+      {/* ── 2. Date + Source Label ── */}
+      <View style={styles.sourceRow}>
         <Text style={[TYPOGRAPHY.tiny, { color: palette.textSecondary }]}>
-          {new Date(item.timestamp).toLocaleString()}
+          Saved {getTimeAgo(item.timestamp)} • from {item.source || 'Instagram'}
         </Text>
       </View>
 
-      {/* ── Summary ── */}
-      <Text style={[TYPOGRAPHY.title, { color: palette.textPrimary, marginBottom: SPACING.sm }]}>
-        {item.summary}
-      </Text>
+      {/* ── 3. AI Analysis Panel ── */}
+      <EditableAIPanel 
+        item={item} 
+        onUpdate={handleUpdate} 
+      />
 
-      {/* ── Intent ── */}
-      <Text style={[TYPOGRAPHY.body, { color: palette.textSecondary, marginBottom: SPACING.md }]}>
-        Intent: {item.intent}
-      </Text>
+      {/* ── 4. Action Zone ── */}
+      <ActionZone 
+        item={item} 
+        onComplete={handleComplete}
+        onSnooze={handleSnooze}
+        onArchive={handleArchive}
+      />
 
-      {/* ── Tags ── */}
-      <View style={styles.tagsRow}>
-        {item.tags?.map((tag) => (
-          <View
-            key={tag}
-            style={[
-              styles.tagChip,
-              {
-                backgroundColor: isDark ? 'rgba(148,163,184,0.10)' : '#F3F4F6',
-                borderColor: palette.border,
-              },
-            ]}
-          >
-            <Tag size={10} color={palette.textSecondary} strokeWidth={2.2} />
-            <Text style={[TYPOGRAPHY.tiny, { color: palette.textSecondary }]}>
-              {tag}
-            </Text>
-          </View>
-        ))}
+      {/* ── 5. Related Items Strip ── */}
+      <View style={styles.relatedSection}>
+        <Text style={[TYPOGRAPHY.subtitle, { color: palette.textPrimary, marginBottom: SPACING.md }]}>
+          Related to this
+        </Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.relatedScroll}>
+          {[1, 2, 3, 4].map((i) => (
+            <View key={i} style={[styles.relatedThumbnail, { backgroundColor: i % 2 === 0 ? '#E5E7EB' : '#D1D5DB', borderColor: palette.border, borderWidth: 1 }]}>
+               {/* Placeholders for related screenshots */}
+               <Image source={{ uri: item.imageUri }} style={styles.thumbImage} />
+            </View>
+          ))}
+        </ScrollView>
       </View>
 
-      {/* ── Primary CTA ── */}
-      <Pressable
-        style={({ pressed }) => [
-          styles.ctaButton,
-          { backgroundColor: palette.primary, opacity: pressed ? 0.88 : 1 },
-        ]}
-        onPress={handleSuggestedAction}
-      >
-        <Text style={[TYPOGRAPHY.buttonLabel, { color: '#FFF', fontSize: 15 }]}>
-          {item.suggestedAction}
-        </Text>
-        <ChevronRight size={16} color="#FFF" strokeWidth={2.8} />
+      {/* ── 6. User Notes (Markdown + Autosave) ── */}
+      <UserNotesSection 
+        item={item} 
+        onUpdate={handleUpdate} 
+      />
+
+      {/* ── 7. Thread Membership ── */}
+      <Pressable style={[styles.threadBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F3F4F6' }]}>
+        <View style={styles.threadInfo}>
+          <Text style={[TYPOGRAPHY.tiny, { color: palette.textSecondary }]}>PART OF THREAD</Text>
+          <Text style={[TYPOGRAPHY.bodyBold, { color: palette.textPrimary }]}>Your app ideas • 4 screenshots</Text>
+        </View>
+        <ChevronRight size={20} color={palette.textSecondary} />
       </Pressable>
-
-      {/* ── Secondary actions ── */}
-      <View style={styles.secondaryRow}>
-        <Pressable
-          style={[
-            styles.secondaryBtn,
-            { backgroundColor: palette.completeBg },
-          ]}
-          onPress={handleComplete}
-        >
-          <Check size={18} color={palette.completeTint} strokeWidth={2.4} />
-          <Text style={[TYPOGRAPHY.buttonLabel, { color: palette.completeTint, fontSize: 13 }]}>
-            Complete
-          </Text>
-        </Pressable>
-
-        <Pressable
-          style={[
-            styles.secondaryBtn,
-            { backgroundColor: palette.snoozeBg },
-          ]}
-          onPress={handleSnooze}
-        >
-          <Clock size={18} color={palette.snoozeTint} strokeWidth={2.4} />
-          <Text style={[TYPOGRAPHY.buttonLabel, { color: palette.snoozeTint, fontSize: 13 }]}>
-            Snooze
-          </Text>
-        </Pressable>
-
-        <Pressable
-          style={[
-            styles.secondaryBtn,
-            { backgroundColor: palette.archiveBg },
-          ]}
-          onPress={handleArchive}
-        >
-          <Archive size={18} color={palette.archiveTint} strokeWidth={2.2} />
-          <Text style={[TYPOGRAPHY.buttonLabel, { color: palette.archiveTint, fontSize: 13 }]}>
-            Archive
-          </Text>
-        </Pressable>
-      </View>
     </ScrollView>
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────
+function getTimeAgo(timestamp) {
+  const diff = Date.now() - timestamp;
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  if (days === 0) return 'today';
+  if (days === 1) return 'yesterday';
+  return `${days} days ago`;
+}
 
 const styles = StyleSheet.create({
   container: {
     padding: SPACING.md,
-    paddingBottom: SPACING.xxl,
+    paddingBottom: SPACING.xxxl,
+  },
+  sourceRow: {
+    marginBottom: SPACING.sm,
+  },
+  relatedSection: {
+    marginBottom: SPACING.lg,
+  },
+  relatedScroll: {
+    flexDirection: 'row',
+  },
+  relatedThumbnail: {
+    width: 100,
+    height: 140,
+    borderRadius: RADIUS.md,
+    marginRight: SPACING.sm,
+    overflow: 'hidden',
+  },
+  thumbImage: {
+    width: '100%',
+    height: '100%',
+    opacity: 0.6,
+  },
+  threadBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: SPACING.md,
+    borderRadius: RADIUS.lg,
+    marginTop: SPACING.md,
+  },
+  threadInfo: {
+    flex: 1,
   },
   emptyContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: SPACING.lg,
   },
-
-  /* Hero */
-  heroWrap: {
-    borderRadius: RADIUS.lg,
-    overflow: 'hidden',
-    marginBottom: SPACING.md,
-  },
-  heroImage: {
-    width: '100%',
-    height: 340,
-    backgroundColor: '#E5E7EB',
-  },
-
-  /* Meta */
-  metaRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: SPACING.md,
-  },
-  badge: {
-    paddingVertical: 4,
-    paddingHorizontal: 10,
-    borderRadius: RADIUS.pill,
-  },
-
-  /* Tags */
-  tagsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: SPACING.sm,
-    marginBottom: SPACING.lg,
-  },
-  tagChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    borderRadius: RADIUS.pill,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-
-  /* CTA */
-  ctaButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: SPACING.md,
-    borderRadius: RADIUS.lg,
-    marginBottom: SPACING.md,
-  },
-
-  /* Secondary */
-  secondaryRow: {
-    flexDirection: 'row',
-    gap: SPACING.sm,
-  },
-  secondaryBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 6,
-    borderRadius: RADIUS.md,
-    paddingVertical: SPACING.sm + 4,
-  },
-
-  /* Back */
   backButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingVertical: SPACING.sm + 2,
-    paddingHorizontal: SPACING.lg,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
     borderRadius: RADIUS.pill,
+    gap: 8,
   },
 });

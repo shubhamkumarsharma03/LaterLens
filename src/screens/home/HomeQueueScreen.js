@@ -1,20 +1,25 @@
 /**
- * HomeQueueScreen — The LaterLens Action Feed
+ * HomeQueueScreen — Today's Queue (Main Screen · Tab 1)
  *
- * Features:
- * - Branded header with item count badge
- * - Time-of-day greeting with pending action count
- * - Premium ActionCard feed with 16px spacing
- * - Gorgeous empty state
- * - Permission-gated via PermissionsScreen
- * - Full Light / Dark theme support
+ * The daily driver. Shows the AI-curated list of screenshots that need
+ * attention today. Prioritised by urgency, age, and predicted intent.
+ * Zero manual sorting required from the user.
+ *
+ * Design spec features:
+ *   - Date + personalised greeting with queue count badge
+ *   - Avatar / profile button (initials circle)
+ *   - Non-blocking processing banner with progress animation
+ *   - Older items fold ("3 more from this week")
+ *   - Empty state with streak counter & positive reinforcement
+ *   - Undo toast (4-second auto-dismiss)
+ *   - Full Light / Dark theme support
  */
 
 import { StatusBar } from 'expo-status-bar';
 import { useNavigation } from '@react-navigation/native';
 import * as MediaLibrary from 'expo-media-library';
 import * as Haptics from 'expo-haptics';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -26,7 +31,15 @@ import {
   Text,
   View,
 } from 'react-native';
-import { Settings, Sparkles, RefreshCw, Inbox } from 'lucide-react-native';
+import {
+  Sparkles,
+  RefreshCw,
+  Inbox,
+  ChevronDown,
+  ChevronUp,
+  Undo2,
+  Flame,
+} from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   analyzeScreenshotContext,
@@ -36,72 +49,189 @@ import ActionCard from '../../components/ActionCard';
 import PermissionsScreen from './PermissionsScreen';
 import { HOME_ROUTES } from '../../navigation/routeNames';
 import { useQueue } from '../../state/QueueContext';
+import { useAuth } from '../../state/AuthContext';
 import { useTheme } from '../../theme/useTheme';
 import { TYPOGRAPHY, SPACING, RADIUS } from '../../theme/colors';
+import { User as UserIcon } from 'lucide-react-native';
 
 // ─── Helpers ─────────────────────────────────────────────────
 
-function getGreeting() {
+function getGreeting(name) {
   const hour = new Date().getHours();
-  if (hour < 12) return 'Good Morning';
-  if (hour < 17) return 'Good Afternoon';
-  return 'Good Evening';
+  const greeting = hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening';
+  return name ? `${greeting}, ${name}` : `${greeting}!`;
 }
 
-// ─── Animated Spinner for Processing ─────────────────────────
+function getFormattedDate() {
+  return new Date().toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+  });
+}
 
-function ProcessingOverlay({ visible, palette }) {
-  const spin = useRef(new Animated.Value(0)).current;
-  const opacity = useRef(new Animated.Value(0)).current;
+function getUserInitials(name = 'User') {
+  return name
+    .split(' ')
+    .map((n) => n[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 2);
+}
+
+const URGENT_THRESHOLD = 3; // Show only top N items; rest fold
+
+// ─── Processing Banner (non-blocking, auto-dismiss) ──────────
+
+function ProcessingBanner({ visible, message, palette }) {
+  const slideAnim = useRef(new Animated.Value(-60)).current;
+  const spinAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (visible) {
-      Animated.timing(opacity, { toValue: 1, duration: 200, useNativeDriver: true }).start();
+      Animated.spring(slideAnim, {
+        toValue: 0,
+        useNativeDriver: true,
+        speed: 14,
+        bounciness: 4,
+      }).start();
       Animated.loop(
-        Animated.timing(spin, {
+        Animated.timing(spinAnim, {
           toValue: 1,
-          duration: 1200,
+          duration: 1000,
           easing: Easing.linear,
           useNativeDriver: true,
         })
       ).start();
     } else {
-      Animated.timing(opacity, { toValue: 0, duration: 200, useNativeDriver: true }).start();
+      Animated.timing(slideAnim, {
+        toValue: -60,
+        duration: 250,
+        useNativeDriver: true,
+      }).start();
     }
-  }, [visible, opacity, spin]);
+  }, [visible, slideAnim, spinAnim]);
 
-  const rotation = spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
+  const rotation = spinAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
 
   if (!visible) return null;
 
   return (
-    <Animated.View style={[styles.processingOverlay, { backgroundColor: palette.overlayBg, opacity }]}>
+    <Animated.View
+      style={[
+        styles.processingBanner,
+        {
+          backgroundColor: palette.processingBg,
+          borderColor: palette.processingBorder,
+          transform: [{ translateY: slideAnim }],
+        },
+      ]}
+    >
       <Animated.View style={{ transform: [{ rotate: rotation }] }}>
-        <RefreshCw size={28} color={palette.primary} strokeWidth={2.2} />
+        <RefreshCw size={14} color={palette.processingText} strokeWidth={2.4} />
       </Animated.View>
-      <Text style={[TYPOGRAPHY.caption, { color: palette.textSecondary, marginTop: SPACING.sm }]}>
-        Analyzing screenshot…
+      <Text style={[TYPOGRAPHY.caption, { color: palette.processingText, marginLeft: 8, flex: 1 }]}>
+        {message || 'Processing 1 new screenshot…'}
       </Text>
     </Animated.View>
   );
 }
 
-// ─── Beautiful Empty State ───────────────────────────────────
+// ─── Undo Toast (4-second auto-dismiss) ──────────────────────
 
-function EmptyState({ palette, isDark }) {
+function UndoToast({ visible, message, onUndo, onDismiss, palette }) {
+  const slideAnim = useRef(new Animated.Value(80)).current;
+
+  useEffect(() => {
+    if (visible) {
+      Animated.spring(slideAnim, {
+        toValue: 0,
+        useNativeDriver: true,
+        speed: 12,
+        bounciness: 6,
+      }).start();
+
+      const timer = setTimeout(() => {
+        Animated.timing(slideAnim, {
+          toValue: 80,
+          duration: 250,
+          useNativeDriver: true,
+        }).start(() => onDismiss?.());
+      }, 4000);
+
+      return () => clearTimeout(timer);
+    } else {
+      slideAnim.setValue(80);
+    }
+  }, [visible, slideAnim, onDismiss]);
+
+  if (!visible) return null;
+
+  return (
+    <Animated.View
+      style={[
+        styles.undoToast,
+        {
+          backgroundColor: palette.toastBg,
+          transform: [{ translateY: slideAnim }],
+        },
+      ]}
+    >
+      <Text style={[TYPOGRAPHY.caption, { color: palette.toastText, flex: 1 }]}>
+        {message}
+      </Text>
+      <Pressable
+        onPress={() => {
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          onUndo?.();
+        }}
+        hitSlop={12}
+      >
+        <View style={styles.undoButton}>
+          <Undo2 size={14} color={palette.toastAction} strokeWidth={2.4} />
+          <Text style={[TYPOGRAPHY.buttonLabel, { color: palette.toastAction, fontSize: 13, marginLeft: 4 }]}>
+            Undo
+          </Text>
+        </View>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+// ─── Beautiful Empty State with Streak ───────────────────────
+
+function EmptyState({ palette, isDark, streakDays }) {
   const float = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
-        Animated.timing(float, { toValue: -8, duration: 2000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(float, { toValue: 0, duration: 2000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(float, {
+          toValue: -10,
+          duration: 2200,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(float, {
+          toValue: 0,
+          duration: 2200,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
       ])
     ).start();
   }, [float]);
 
   return (
-    <View style={[styles.emptyContainer, { backgroundColor: palette.emptyBg, borderColor: palette.border }]}>
+    <View
+      style={[
+        styles.emptyContainer,
+        { backgroundColor: palette.emptyBg, borderColor: palette.border },
+      ]}
+    >
       <Animated.View style={[styles.emptyIconWrap, { transform: [{ translateY: float }] }]}>
         <View
           style={[
@@ -113,22 +243,59 @@ function EmptyState({ palette, isDark }) {
             },
           ]}
         >
-          <Inbox size={32} color={palette.primary} strokeWidth={1.6} />
+          <Inbox size={36} color={palette.primary} strokeWidth={1.5} />
         </View>
       </Animated.View>
 
       <Text style={[TYPOGRAPHY.subtitle, { color: palette.textPrimary, marginTop: SPACING.md }]}>
-        All caught up!
+        You're all caught up!
       </Text>
       <Text
         style={[
           TYPOGRAPHY.body,
-          { color: palette.textSecondary, textAlign: 'center', marginTop: SPACING.xs, maxWidth: 280 },
+          {
+            color: palette.textSecondary,
+            textAlign: 'center',
+            marginTop: SPACING.xs,
+            maxWidth: 280,
+          },
         ]}
       >
-        Tap "Process Latest" to analyze your newest screenshot and build your action queue.
+        Take a screenshot to automatically queue a new action.
       </Text>
+
+      {/* Streak counter */}
+      {streakDays > 0 && (
+        <View style={[styles.streakBadge, { backgroundColor: isDark ? 'rgba(251,191,36,0.12)' : '#FFFBEB' }]}>
+          <Flame size={14} color="#D97706" strokeWidth={2.2} />
+          <Text style={[TYPOGRAPHY.caption, { color: '#D97706', marginLeft: 4, fontWeight: '700' }]}>
+            {streakDays} day{streakDays !== 1 ? 's' : ''} streak — empty queue!
+          </Text>
+        </View>
+      )}
     </View>
+  );
+}
+
+// ─── Older Items Fold ────────────────────────────────────────
+
+function OlderItemsFold({ count, expanded, onToggle, palette }) {
+  if (count <= 0) return null;
+
+  return (
+    <Pressable
+      onPress={onToggle}
+      style={[styles.foldButton, { backgroundColor: palette.foldBg }]}
+    >
+      <Text style={[TYPOGRAPHY.caption, { color: palette.foldText }]}>
+        {expanded ? 'Hide older items' : `${count} more from this week`}
+      </Text>
+      {expanded ? (
+        <ChevronUp size={16} color={palette.foldText} strokeWidth={2} />
+      ) : (
+        <ChevronDown size={16} color={palette.foldText} strokeWidth={2} />
+      )}
+    </Pressable>
   );
 }
 
@@ -141,7 +308,14 @@ export default function HomeQueueScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
   const [hasPermission, setHasPermission] = useState(false);
-  const [message, setMessage] = useState('');
+  const [processingMessage, setProcessingMessage] = useState('');
+  const [showOlderItems, setShowOlderItems] = useState(false);
+  const [streakDays, setStreakDays] = useState(0);
+
+  // Undo state
+  const [undoToast, setUndoToast] = useState({ visible: false, message: '', undoAction: null });
+  const lastAction = useRef(null);
+
   const {
     allItems,
     queueItems,
@@ -154,12 +328,13 @@ export default function HomeQueueScreen() {
     reviveDueSnoozed,
   } = useQueue();
 
+  const { user, isAuthenticated } = useAuth();
+
   useEffect(() => {
     setIsLoading(true);
     hydrateQueue()
       .catch((err) => {
         console.log('[App] Failed during hydration:', err);
-        setMessage('Could not load your action queue.');
       })
       .finally(() => {
         setIsLoading(false);
@@ -180,7 +355,6 @@ export default function HomeQueueScreen() {
         console.log('[Queue] Failed to revive snoozed items:', error);
       });
     }, 30000);
-
     return () => clearInterval(timer);
   }, [reviveDueSnoozed]);
 
@@ -188,7 +362,7 @@ export default function HomeQueueScreen() {
 
   const initializeMediaFlow = async () => {
     setIsProcessing(true);
-    setMessage('');
+    setProcessingMessage('');
 
     try {
       const currentPermission = await MediaLibrary.getPermissionsAsync();
@@ -200,7 +374,7 @@ export default function HomeQueueScreen() {
 
       if (!finalPermission.granted) {
         setHasPermission(false);
-        setMessage('We need photo access to analyze your screenshots.');
+        setProcessingMessage('We need photo access to analyze your screenshots.');
         return;
       }
 
@@ -217,14 +391,14 @@ export default function HomeQueueScreen() {
       const uri = await fetchLatestScreenshotUri();
 
       if (!uri) {
-        setMessage('No screenshots found yet in your library.');
+        setProcessingMessage('No screenshots found yet.');
         return;
       }
 
       const isDuplicate = allItems.some((item) => item.imageUri === uri);
       if (isDuplicate) {
         console.log('[Media] Screenshot already processed:', uri);
-        setMessage('Latest screenshot is already processed.');
+        setProcessingMessage('Latest screenshot already processed.');
         return;
       }
 
@@ -232,7 +406,7 @@ export default function HomeQueueScreen() {
     } catch (error) {
       console.log('[Media] Failed to initialize media flow:', error);
       setHasPermission(false);
-      setMessage('Could not load screenshots. Please try again.');
+      setProcessingMessage('Could not load screenshots. Please try again.');
     } finally {
       setIsProcessing(false);
     }
@@ -240,11 +414,11 @@ export default function HomeQueueScreen() {
 
   const processScreenshotWithAI = async (imageUri) => {
     try {
-      setMessage('Running on-device OCR...');
+      setProcessingMessage('Running on-device OCR…');
       const extractedText = await extractTextFromImage(imageUri);
       console.log('[AI Flow] OCR text preview:', extractedText.slice(0, 160));
 
-      setMessage('Analyzing context with Gemini...');
+      setProcessingMessage('Analyzing context with Gemini…');
       const metadata = await analyzeScreenshotContext(extractedText);
 
       const queueItem = {
@@ -257,41 +431,83 @@ export default function HomeQueueScreen() {
         suggestedAction: metadata.suggestedAction,
         summary: metadata.summary,
         extractedUrl: metadata.extractedUrl || null,
+        urgency: metadata.urgency || null,
+        urgencyLabel: metadata.urgencyLabel || null,
         status: 'queued',
       };
 
       await addQueueItem(queueItem);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setMessage('');
+      setProcessingMessage('');
 
       console.log('[AI Flow] Final structured JSON metadata:', queueItem);
     } catch (error) {
       console.log('[AI Flow] Processing failed:', error);
-      setMessage('Could not analyze screenshot context.');
+      setProcessingMessage('Could not analyze screenshot context.');
     }
   };
 
-  // ─── Action handlers ──
+  // ─── Action handlers with Undo support ──
 
-  const handleComplete = async (item) => {
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    await completeQueueItem(item.id);
-  };
+  const handleComplete = useCallback(
+    async (item) => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      lastAction.current = { type: 'complete', item };
+      await completeQueueItem(item.id);
+      setUndoToast({
+        visible: true,
+        message: 'Marked as done · Undo',
+        undoAction: () => {
+          // Re-queue the item (simplified undo)
+          addQueueItem({ ...item, status: 'queued' });
+        },
+      });
+    },
+    [completeQueueItem, addQueueItem]
+  );
 
-  const handleArchive = async (item) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    await archiveQueueItem(item.id);
-  };
+  const handleArchive = useCallback(
+    async (item) => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      lastAction.current = { type: 'archive', item };
+      await archiveQueueItem(item.id);
+      setUndoToast({
+        visible: true,
+        message: 'Archived · Undo',
+        undoAction: () => {
+          addQueueItem({ ...item, status: 'queued' });
+        },
+      });
+    },
+    [archiveQueueItem, addQueueItem]
+  );
 
-  const handleSnooze = async (item) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    await snoozeQueueItem(item.id, 60);
-  };
+  const handleSnooze = useCallback(
+    async (item) => {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      lastAction.current = { type: 'snooze', item };
+      await snoozeQueueItem(item.id, 60 * 24); // Tomorrow (24h)
+      setUndoToast({
+        visible: true,
+        message: 'Snoozed for tomorrow · Undo',
+        undoAction: () => {
+          addQueueItem({ ...item, status: 'queued', snoozeUntil: null });
+        },
+      });
+    },
+    [snoozeQueueItem, addQueueItem]
+  );
 
   const handlePrimaryAction = (item) => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     console.log('[ActionQueue] Suggested action pressed:', item.suggestedAction, item.id);
   };
+
+  const handleUndoAction = useCallback(() => {
+    undoToast.undoAction?.();
+    setUndoToast({ visible: false, message: '', undoAction: null });
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  }, [undoToast]);
 
   // ─── Media helpers ──
 
@@ -369,6 +585,12 @@ export default function HomeQueueScreen() {
     return screenshotAlbum || null;
   };
 
+  // ─── Split items: urgent vs older ──
+
+  const urgentItems = queueItems.slice(0, URGENT_THRESHOLD);
+  const olderItems = queueItems.slice(URGENT_THRESHOLD);
+  const displayedItems = showOlderItems ? queueItems : urgentItems;
+
   // ─── Loading State ──
 
   if (isLoading) {
@@ -399,79 +621,88 @@ export default function HomeQueueScreen() {
   const pendingCount = queueItems.length;
 
   return (
-    <View style={[styles.screen, { backgroundColor: palette.background, paddingTop: insets.top + SPACING.sm }]}>
-      {/* ── Header ── */}
+    <View
+      style={[
+        styles.screen,
+        { backgroundColor: palette.background, paddingTop: insets.top + SPACING.sm },
+      ]}
+    >
+      {/* ── Header: Date + Greeting + Avatar ── */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <View style={styles.brandRow}>
-            <Sparkles size={20} color={palette.primary} strokeWidth={2.2} />
-            <Text style={[TYPOGRAPHY.title, { color: palette.textPrimary, marginLeft: 6 }]}>
-              LaterLens
-            </Text>
-          </View>
-          <Text style={[TYPOGRAPHY.body, { color: palette.textSecondary, marginTop: 2 }]}>
-            {getGreeting()}. You have{' '}
+          <Text style={[TYPOGRAPHY.caption, { color: palette.textSecondary }]}>
+            {getFormattedDate()}
+          </Text>
+          <Text style={[TYPOGRAPHY.title, { color: palette.textPrimary, marginTop: 2 }]}>
+            {getGreeting(isAuthenticated ? user?.name : null)}
+          </Text>
+          <Text style={[TYPOGRAPHY.body, { color: palette.textSecondary, marginTop: 4 }]}>
+            Today's queue ·{' '}
             <Text style={{ fontWeight: '700', color: palette.primary }}>
-              {pendingCount} pending action{pendingCount !== 1 ? 's' : ''}
+              {pendingCount} item{pendingCount !== 1 ? 's' : ''}
             </Text>
-            .
           </Text>
         </View>
 
-        <View style={styles.headerRight}>
-          {/* Item count badge */}
-          {pendingCount > 0 && (
-            <View style={[styles.countBadge, { backgroundColor: palette.primary }]}>
-              <Text style={styles.countBadgeText}>{pendingCount}</Text>
-            </View>
-          )}
-
-          {/* Process Latest button */}
-          <Pressable
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              initializeMediaFlow();
-            }}
-            disabled={isProcessing}
-            style={({ pressed }) => [
-              styles.processButton,
-              {
-                backgroundColor: isDark
-                  ? 'rgba(129,140,248,0.14)'
-                  : 'rgba(99,102,241,0.08)',
-                opacity: pressed ? 0.7 : isProcessing ? 0.5 : 1,
-              },
-            ]}
-          >
-            <RefreshCw
-              size={16}
-              color={palette.primary}
-              strokeWidth={2.4}
-            />
-            <Text
-              style={[
-                TYPOGRAPHY.buttonLabel,
-                { color: palette.primary, fontSize: 13 },
-              ]}
-            >
-              {isProcessing ? 'Processing…' : 'Process Latest'}
+        {/* Avatar / Profile Button */}
+        <Pressable
+          style={[styles.avatar, { backgroundColor: palette.avatarBg }]}
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            navigation.navigate(HOME_ROUTES.PROFILE);
+          }}
+          accessibilityLabel="Open profile"
+        >
+          {isAuthenticated ? (
+            <Text style={[styles.avatarText, { color: palette.avatarText }]}>
+              {getUserInitials(user?.name)}
             </Text>
-          </Pressable>
-        </View>
+          ) : (
+            <UserIcon size={20} color={palette.avatarText} />
+          )}
+        </Pressable>
       </View>
 
-      {/* ── Status message ── */}
-      {!!message && (
-        <View style={[styles.messageBanner, { backgroundColor: palette.emptyBg, borderColor: palette.border }]}>
-          <Text style={[TYPOGRAPHY.caption, { color: palette.textSecondary }]}>
-            {message}
+      {/* ── Processing Banner (non-blocking) ── */}
+      <ProcessingBanner
+        visible={isProcessing}
+        message={processingMessage}
+        palette={palette}
+      />
+
+      {/* ── Process Latest trigger ── */}
+      <View style={styles.processRow}>
+        <Pressable
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            initializeMediaFlow();
+          }}
+          disabled={isProcessing}
+          style={({ pressed }) => [
+            styles.processButton,
+            {
+              backgroundColor: isDark
+                ? 'rgba(129,140,248,0.14)'
+                : 'rgba(99,102,241,0.08)',
+              opacity: pressed ? 0.7 : isProcessing ? 0.5 : 1,
+            },
+          ]}
+        >
+          <Sparkles size={16} color={palette.primary} strokeWidth={2.2} />
+          <Text
+            style={[
+              TYPOGRAPHY.buttonLabel,
+              { color: palette.primary, fontSize: 13, marginLeft: 6 },
+            ]}
+          >
+            {isProcessing ? 'Processing…' : 'Process Latest'}
           </Text>
-        </View>
-      )}
+        </Pressable>
+      </View>
 
       {/* ── Feed ── */}
       <FlatList
-        data={queueItems}
+        data={displayedItems}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => (
           <ActionCard
@@ -489,11 +720,30 @@ export default function HomeQueueScreen() {
         )}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
-        ListEmptyComponent={<EmptyState palette={palette} isDark={isDark} />}
+        ListEmptyComponent={<EmptyState palette={palette} isDark={isDark} streakDays={streakDays} />}
+        ListFooterComponent={
+          olderItems.length > 0 ? (
+            <OlderItemsFold
+              count={olderItems.length}
+              expanded={showOlderItems}
+              onToggle={() => {
+                Haptics.selectionAsync();
+                setShowOlderItems((prev) => !prev);
+              }}
+              palette={palette}
+            />
+          ) : null
+        }
       />
 
-      {/* ── Processing overlay ── */}
-      <ProcessingOverlay visible={isProcessing} palette={palette} />
+      {/* ── Undo Toast ── */}
+      <UndoToast
+        visible={undoToast.visible}
+        message={undoToast.message}
+        onUndo={handleUndoAction}
+        onDismiss={() => setUndoToast({ visible: false, message: '', undoAction: null })}
+        palette={palette}
+      />
 
       <StatusBar style={isDark ? 'light' : 'dark'} />
     </View>
@@ -520,60 +770,73 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     paddingHorizontal: SPACING.md,
-    paddingBottom: SPACING.md,
+    paddingBottom: SPACING.sm,
   },
   headerLeft: {
     flex: 1,
     marginRight: SPACING.sm,
   },
-  brandRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  headerRight: {
-    alignItems: 'flex-end',
-    gap: SPACING.sm,
-  },
-  countBadge: {
-    minWidth: 24,
-    height: 24,
-    borderRadius: 12,
+
+  /* ── Avatar ── */
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 7,
+    marginTop: 4,
   },
-  countBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 12,
+  avatarText: {
+    fontSize: 16,
     fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+
+  /* ── Processing banner ── */
+  processingBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: SPACING.md,
+    marginBottom: SPACING.sm,
+    paddingVertical: SPACING.sm + 2,
+    paddingHorizontal: SPACING.md,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+  },
+
+  /* ── Process button row ── */
+  processRow: {
+    paddingHorizontal: SPACING.md,
+    paddingBottom: SPACING.sm,
   },
   processButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    alignSelf: 'flex-start',
     paddingVertical: SPACING.sm,
     paddingHorizontal: SPACING.md,
     borderRadius: RADIUS.pill,
   },
 
-  /* ── Status ── */
-  messageBanner: {
-    marginHorizontal: SPACING.md,
-    marginBottom: SPACING.sm,
-    paddingVertical: SPACING.sm,
-    paddingHorizontal: SPACING.md,
-    borderRadius: RADIUS.md,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-
   /* ── Feed ── */
   listContent: {
     paddingHorizontal: SPACING.md,
-    paddingBottom: SPACING.xxl,
+    paddingBottom: SPACING.xxl + SPACING.xl,
     paddingTop: SPACING.xs,
   },
 
-  /* ── Empty ── */
+  /* ── Older items fold ── */
+  foldButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: SPACING.md,
+    borderRadius: RADIUS.md,
+    marginTop: SPACING.xs,
+    gap: 6,
+  },
+
+  /* ── Empty state ── */
   emptyContainer: {
     alignItems: 'center',
     paddingVertical: SPACING.xxl,
@@ -586,18 +849,41 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.xs,
   },
   emptyIconBg: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     alignItems: 'center',
     justifyContent: 'center',
   },
-
-  /* ── Processing overlay ── */
-  processingOverlay: {
-    ...StyleSheet.absoluteFillObject,
+  streakBadge: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 10,
+    marginTop: SPACING.md,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: RADIUS.pill,
+  },
+
+  /* ── Undo toast ── */
+  undoToast: {
+    position: 'absolute',
+    bottom: 24,
+    left: SPACING.md,
+    right: SPACING.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.md,
+    borderRadius: RADIUS.md,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+  },
+  undoButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: SPACING.md,
   },
 });

@@ -5,6 +5,7 @@ import {
   saveActionItem,
 } from '../services/actionQueueStorage';
 import { initialQueueState, QUEUE_ACTIONS, queueReducer } from './queueReducer';
+import { generateMockCollections } from '../services/mockData';
 
 const QueueContext = createContext(null);
 
@@ -20,6 +21,10 @@ function normalizeItem(item) {
     ...item,
     status: item?.status || STATUS.QUEUED,
     snoozeUntil: item?.snoozeUntil || null,
+    intent: item?.intent || 'I think you want to look at this later.',
+    notes: item?.notes || '',
+    source: item?.source || 'Screenshot',
+    tags: item?.tags || [],
   };
 }
 
@@ -38,7 +43,12 @@ export function QueueProvider({ children }) {
   }, []);
 
   const hydrateQueue = useCallback(async () => {
-    const queue = await getActionQueue();
+    let queue = await getActionQueue();
+    if (queue.length === 0) {
+      // For demonstration purposes, if the queue is empty, populate with mock data
+      queue = generateMockCollections(30);
+      await replaceActionQueue(queue);
+    }
     const normalized = sortNewest(queue.map(normalizeItem));
     dispatch({ type: QUEUE_ACTIONS.HYDRATE, payload: normalized });
     return normalized;
@@ -128,6 +138,19 @@ export function QueueProvider({ children }) {
     return persistQueue(nextQueue);
   }, [state.items, persistQueue]);
 
+  const updateQueueItem = useCallback(
+    async (itemId, updates) => {
+      const nextQueue = state.items.map((item) =>
+        item.id === itemId ? { ...item, ...updates } : item
+      );
+      dispatch({ type: QUEUE_ACTIONS.UPDATE_ITEM, payload: { id: itemId, updates } });
+      // Persist to storage
+      await replaceActionQueue(nextQueue);
+      return nextQueue;
+    },
+    [state.items]
+  );
+
   const removeQueueItem = useCallback(
     async (itemId) => {
       const nextQueue = state.items.filter((item) => item.id !== itemId);
@@ -151,6 +174,34 @@ export function QueueProvider({ children }) {
     [state.items]
   );
 
+  const bulkDelete = useCallback(
+    async (itemIds) => {
+      const nextQueue = state.items.filter((item) => !itemIds.includes(item.id));
+      return persistQueue(nextQueue);
+    },
+    [state.items, persistQueue]
+  );
+
+  const bulkUpdateStatus = useCallback(
+    async (itemIds, status) => {
+      const nextQueue = state.items.map((item) =>
+        itemIds.includes(item.id) ? { ...item, status, snoozeUntil: null } : item
+      );
+      return persistQueue(nextQueue);
+    },
+    [state.items, persistQueue]
+  );
+
+  const bulkUpdateCategory = useCallback(
+    async (itemIds, contentType) => {
+      const nextQueue = state.items.map((item) =>
+        itemIds.includes(item.id) ? { ...item, contentType } : item
+      );
+      return persistQueue(nextQueue);
+    },
+    [state.items, persistQueue]
+  );
+
   const value = useMemo(
     () => ({
       allItems: state.items,
@@ -164,7 +215,11 @@ export function QueueProvider({ children }) {
       snoozeQueueItem,
       reviveDueSnoozed,
       removeQueueItem,
+      updateQueueItem,
       getItemById,
+      bulkDelete,
+      bulkUpdateStatus,
+      bulkUpdateCategory,
     }),
     [
       state.items,
@@ -178,7 +233,11 @@ export function QueueProvider({ children }) {
       snoozeQueueItem,
       reviveDueSnoozed,
       removeQueueItem,
+      updateQueueItem,
       getItemById,
+      bulkDelete,
+      bulkUpdateStatus,
+      bulkUpdateCategory,
     ]
   );
 

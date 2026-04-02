@@ -32,7 +32,8 @@
         {
           "isAccessMediaLocationEnabled": true
         }
-      ]
+      ],
+      "expo-location"
     ]
   }
 }

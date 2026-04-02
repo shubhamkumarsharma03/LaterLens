@@ -1,25 +1,63 @@
 /**
  * ActionCard — Premium card for the LaterLens Action Queue.
  *
- * Layout:
- *   ┌────────────────────────────────────┐
- *   │ [Thumbnail]  Category Badge        │
- *   │              AI Summary (2 lines)  │
- *   ├────────────────────────────────────┤
- *   │ [✓] [⏱] [📦]      [ Suggested  → ]│
- *   └────────────────────────────────────┘
- *
- * Responds to Light / Dark theme via useTheme().
- * Haptic feedback on quick-action taps via expo-haptics.
+ * Design spec features:
+ *   - 56×56px rounded thumbnail (upgraded from 42px per suggestion)
+ *   - Category pill with semantic color mapping
+ *   - Urgency badge (amber warnings, red for expiring)
+ *   - Deep action button (context-aware CTA)
+ *   - Swipe right = complete (green tick reveal)
+ *   - Swipe left = snooze options
+ *   - Relative timestamp label
+ *   - Haptic feedback on all interactions
  */
 
-import { useCallback, useRef } from 'react';
-import { Animated, Image, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useRef, useState } from 'react';
+import {
+  Animated,
+  Image,
+  Linking,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { Swipeable } from 'react-native-gesture-handler';
-import { Check, Clock, Archive, ChevronRight, ExternalLink } from 'lucide-react-native';
+import {
+  Check,
+  Clock,
+  Archive,
+  ChevronRight,
+  ExternalLink,
+  AlertTriangle,
+  ShoppingCart,
+  BookOpen,
+  Lightbulb,
+  MapPin,
+  Calendar,
+  User,
+  Tag,
+} from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '../theme/useTheme';
 import { TYPOGRAPHY, SPACING, RADIUS } from '../theme/colors';
+
+// ─── Category Icon Map ───────────────────────────────────────
+
+const CATEGORY_ICONS = {
+  Shopping: ShoppingCart,
+  Product: ShoppingCart,
+  Study: BookOpen,
+  'Study material': BookOpen,
+  Idea: Lightbulb,
+  'Project idea': Lightbulb,
+  Place: MapPin,
+  Event: Calendar,
+  Person: User,
+  Receipt: Tag,
+  Ticket: Tag,
+  Code: Tag,
+};
 
 // ─── Category Badge ──────────────────────────────────────────
 
@@ -28,13 +66,33 @@ function CategoryBadge({ contentType, theme }) {
   return (
     <View style={[styles.badge, { backgroundColor: badge.bg }]}>
       <Text style={[TYPOGRAPHY.badgeLabel, { color: badge.text }]}>
-        {contentType || 'Idea'}
+        {contentType || 'Capture'}
       </Text>
     </View>
   );
 }
 
-// ─── Quick Action Icon Button ────────────────────────────────
+// ─── Urgency Badge ───────────────────────────────────────────
+
+function UrgencyBadge({ item, palette }) {
+  if (!item.urgency) return null;
+
+  const isExpiring = item.urgency === 'expiring';
+  const bgColor = isExpiring ? palette.urgencyRedBg : palette.urgencyAmberBg;
+  const textColor = isExpiring ? palette.urgencyRed : palette.urgencyAmber;
+  const label = item.urgencyLabel || (isExpiring ? 'Expiring soon' : 'Time-sensitive');
+
+  return (
+    <View style={[styles.urgencyBadge, { backgroundColor: bgColor }]}>
+      <AlertTriangle size={10} color={textColor} strokeWidth={2.5} />
+      <Text style={[styles.urgencyText, { color: textColor }]}>
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+// ─── Quick Action Button ─────────────────────────────────────
 
 function QuickActionButton({ icon: Icon, tint, bg, onPress, label }) {
   const scale = useRef(new Animated.Value(1)).current;
@@ -57,6 +115,38 @@ function QuickActionButton({ icon: Icon, tint, bg, onPress, label }) {
   );
 }
 
+// ─── Thumbnail with Category Fallback ────────────────────────
+
+function SmartThumbnail({ item, palette, isDark }) {
+  const [failed, setFailed] = useState(false);
+  const FallbackIcon = CATEGORY_ICONS[item.contentType] || Tag;
+
+  if (!item.imageUri || failed) {
+    return (
+      <View
+        style={[
+          styles.thumbnail,
+          {
+            backgroundColor: isDark ? 'rgba(129,140,248,0.1)' : 'rgba(99,102,241,0.06)',
+            alignItems: 'center',
+            justifyContent: 'center',
+          },
+        ]}
+      >
+        <FallbackIcon size={22} color={palette.primary} strokeWidth={1.8} />
+      </View>
+    );
+  }
+
+  return (
+    <Image
+      source={{ uri: item.imageUri }}
+      style={styles.thumbnail}
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 // ─── Main ActionCard ─────────────────────────────────────────
 
 export default function ActionCard({
@@ -66,36 +156,68 @@ export default function ActionCard({
   onSnooze,
   onArchive,
   onCardPress,
+  onUndoAction,
 }) {
   const theme = useTheme();
   const { palette, isDark } = theme;
+  const swipeRef = useRef(null);
 
-  // ── Swipe actions ──
+  // ── Swipe Right → Complete ──
 
-  const renderRightActions = (_progress, dragX) => {
-    const translateComplete = dragX.interpolate({
-      inputRange: [-180, -90, 0],
-      outputRange: [0, 0, 90],
+  const renderLeftActions = (_progress, dragX) => {
+    const scale = dragX.interpolate({
+      inputRange: [0, 80],
+      outputRange: [0.5, 1],
       extrapolate: 'clamp',
     });
-    const translateArchive = dragX.interpolate({
-      inputRange: [-180, -90, 0],
-      outputRange: [0, 45, 180],
+    const opacity = dragX.interpolate({
+      inputRange: [0, 60],
+      outputRange: [0, 1],
       extrapolate: 'clamp',
     });
 
     return (
-      <View style={styles.swipeContainer}>
-        <Animated.View style={{ transform: [{ translateX: translateComplete }] }}>
+      <Animated.View style={[styles.swipeLeftAction, { opacity }]}>
+        <Animated.View
+          style={[
+            styles.swipeLeftContent,
+            { backgroundColor: palette.swipeComplete, transform: [{ scale }] },
+          ]}
+        >
+          <Check size={24} color="#FFF" strokeWidth={2.8} />
+          <Text style={styles.swipeLabel}>Done</Text>
+        </Animated.View>
+      </Animated.View>
+    );
+  };
+
+  // ── Swipe Left → Snooze / Archive ──
+
+  const renderRightActions = (_progress, dragX) => {
+    const translateSnooze = dragX.interpolate({
+      inputRange: [-200, -100, 0],
+      outputRange: [0, 0, 100],
+      extrapolate: 'clamp',
+    });
+    const translateArchive = dragX.interpolate({
+      inputRange: [-200, -100, 0],
+      outputRange: [0, 50, 200],
+      extrapolate: 'clamp',
+    });
+
+    return (
+      <View style={styles.swipeRightContainer}>
+        <Animated.View style={{ transform: [{ translateX: translateSnooze }] }}>
           <Pressable
-            style={[styles.swipeAction, { backgroundColor: palette.swipeComplete }]}
+            style={[styles.swipeAction, { backgroundColor: palette.snoozeTint }]}
             onPress={() => {
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              onComplete(item);
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              swipeRef.current?.close();
+              onSnooze(item);
             }}
           >
-            <Check size={20} color="#FFF" strokeWidth={2.6} />
-            <Text style={styles.swipeLabel}>Done</Text>
+            <Clock size={18} color="#FFF" strokeWidth={2.2} />
+            <Text style={styles.swipeLabel}>Tomorrow</Text>
           </Pressable>
         </Animated.View>
         <Animated.View style={{ transform: [{ translateX: translateArchive }] }}>
@@ -103,6 +225,7 @@ export default function ActionCard({
             style={[styles.swipeAction, { backgroundColor: palette.swipeArchive }]}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+              swipeRef.current?.close();
               onArchive(item);
             }}
           >
@@ -114,14 +237,26 @@ export default function ActionCard({
     );
   };
 
+  const onSwipeLeft = () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    onComplete(item);
+  };
+
   // ── Render ──
 
   return (
     <Swipeable
+      ref={swipeRef}
       overshootRight={false}
+      overshootLeft={false}
       friction={2}
+      leftThreshold={80}
       rightThreshold={40}
+      renderLeftActions={renderLeftActions}
       renderRightActions={renderRightActions}
+      onSwipeableOpen={(direction) => {
+        if (direction === 'left') onSwipeLeft();
+      }}
     >
       <View style={[theme.cardStyle, styles.card]}>
         {/* ── Top Section ── */}
@@ -134,10 +269,13 @@ export default function ActionCard({
             pressed && { opacity: 0.85 },
           ]}
         >
-          <Image source={{ uri: item.imageUri }} style={styles.thumbnail} />
+          <SmartThumbnail item={item} palette={palette} isDark={isDark} />
 
           <View style={styles.metaColumn}>
-            <CategoryBadge contentType={item.contentType} theme={theme} />
+            <View style={styles.badgeRow}>
+              <CategoryBadge contentType={item.contentType} theme={theme} />
+              <UrgencyBadge item={item} palette={palette} />
+            </View>
             <Text
               style={[TYPOGRAPHY.bodyBold, { color: palette.textPrimary, marginTop: 6 }]}
               numberOfLines={2}
@@ -180,6 +318,7 @@ export default function ActionCard({
             />
           </View>
 
+          {/* Deep Action Button — context-aware CTA */}
           <Pressable
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -220,7 +359,9 @@ function formatRelativeTime(timestamp) {
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
+  if (days === 1) return 'Yesterday';
   if (days < 7) return `${days}d ago`;
+  if (days < 14) return 'Posted 2 weeks ago — revisit?';
   return new Date(timestamp).toLocaleDateString();
 }
 
@@ -239,8 +380,8 @@ const styles = StyleSheet.create({
     paddingBottom: SPACING.sm + 4,
   },
   thumbnail: {
-    width: 80,
-    height: 80,
+    width: 56,
+    height: 56,
     borderRadius: RADIUS.md,
     backgroundColor: '#E5E7EB',
     marginRight: SPACING.md,
@@ -249,6 +390,12 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
   },
+  badgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
 
   /* ── Badge ── */
   badge: {
@@ -256,6 +403,21 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     paddingHorizontal: 8,
     borderRadius: RADIUS.pill,
+  },
+
+  /* ── Urgency Badge ── */
+  urgencyBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderRadius: RADIUS.pill,
+    gap: 3,
+  },
+  urgencyText: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
 
   /* ── Divider ── */
@@ -300,8 +462,23 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
 
-  /* ── Swipe ── */
-  swipeContainer: {
+  /* ── Swipe Left (Complete) ── */
+  swipeLeftAction: {
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+    paddingLeft: SPACING.md,
+    marginBottom: SPACING.md,
+  },
+  swipeLeftContent: {
+    width: 80,
+    height: '100%',
+    borderRadius: RADIUS.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  /* ── Swipe Right (Snooze/Archive) ── */
+  swipeRightContainer: {
     flexDirection: 'row',
     marginBottom: SPACING.md,
   },
