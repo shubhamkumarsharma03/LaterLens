@@ -9,6 +9,7 @@ import {
   FlatList,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../theme/useTheme';
 import { SPACING, RADIUS, TYPOGRAPHY } from '../../theme/colors';
 import { COLLECTION_ROUTES } from '../../navigation/routeNames';
@@ -23,6 +24,7 @@ import { Search, ChevronDown, LayoutGrid, List, Clock, Sparkles, BookOpen } from
 export default function CollectionsScreen() {
   const { palette } = useTheme();
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
   const { collectionItems } = useQueue();
   const [query, setQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('All');
@@ -91,7 +93,7 @@ export default function CollectionsScreen() {
 
   // Headers & Subtitles
   const renderHeader = () => (
-    <View style={styles.headerContainer}>
+    <View style={[styles.headerContainer, { paddingTop: insets.top + SPACING.lg }]}>
       <View style={styles.badgeRow}>
         <View style={[styles.statusBadge, { backgroundColor: palette.primaryLight }]}>
           <Text style={[styles.badgeText, { color: palette.primary }]}>browse + organise · tab 2</Text>

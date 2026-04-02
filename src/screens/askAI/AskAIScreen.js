@@ -88,7 +88,7 @@ export default function AskAIScreen() {
   };
 
   const renderHeader = () => (
-    <View style={[styles.header, { paddingTop: SPACING.sm, backgroundColor: palette.background }]}>
+    <View style={[styles.header, { paddingTop: insets.top + SPACING.sm, backgroundColor: palette.background }]}>
       <View style={styles.headerRow}>
         <View>
           <Text style={[TYPOGRAPHY.heroTitle, { color: palette.textPrimary }]}>Ask AI</Text>

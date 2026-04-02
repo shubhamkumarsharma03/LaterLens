@@ -93,7 +93,7 @@ function CollectionsStackNavigator() {
       <CollectionsStack.Screen
         name={COLLECTION_ROUTES.HOME}
         component={CollectionsScreen}
-        options={{ title: 'Collections' }}
+        options={{ headerShown: false }}
       />
       <CollectionsStack.Screen
         name={COLLECTION_ROUTES.SEARCH}
@@ -128,7 +128,7 @@ function AskAIStackNavigator() {
       <AskAIStack.Screen
         name={ASK_AI_ROUTES.HOME}
         component={AskAIScreen}
-        options={{ title: 'LaterLens' }}
+        options={{ headerShown: false }}
       />
       <AskAIStack.Screen
         name={ASK_AI_ROUTES.CHAT}
@@ -158,7 +158,7 @@ function InsightsStackNavigator() {
       <InsightsStack.Screen
         name={INSIGHTS_ROUTES.HOME}
         component={InsightsScreen}
-        options={{ title: 'Insights' }}
+        options={{ headerShown: false }}
       />
       <InsightsStack.Screen
         name={INSIGHTS_ROUTES.STATS}
