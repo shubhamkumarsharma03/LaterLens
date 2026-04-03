@@ -1,14 +1,13 @@
 /**
- * AppNavigator — Themed bottom-tab + stack navigator.
+ * AppNavigator — Swipeable Bottom-Tab + Stack Navigator.
  *
- * Uses the LaterLens design system for all chrome:
- *   - Tab bar colours, active tint, background
- *   - Stack header styling (blurred translucent on iOS)
- *   - lucide-react-native icons
+ * Transitions from Bottom Tabs to Material Top Tabs (positioned at bottom)
+ * to support horizontal swiping between main app sections.
  */
 
-import { StyleSheet } from 'react-native';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import React, { useState, useEffect } from 'react';
+import { StyleSheet, View, Text, ActivityIndicator } from 'react-native';
+import { createMaterialTopTabNavigator } from '@react-navigation/material-top-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Home, FolderOpen, Sparkles, BarChart3 } from 'lucide-react-native';
 
@@ -34,15 +33,12 @@ import {
   ROOT_STACK,
 } from './routeNames';
 import { useTheme } from '../theme/useTheme';
-import { RADIUS } from '../theme/colors';
-import OnboardingNavigator from './OnboardingNavigator';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useState, useEffect } from 'react';
+import { useQueue } from '../state/QueueContext';
 import { OnboardingProvider, useOnboarding } from '../state/OnboardingContext';
-import { ActivityIndicator, View } from 'react-native';
+import OnboardingNavigator from './OnboardingNavigator';
 
 const Stack = createNativeStackNavigator();
-const Tab = createBottomTabNavigator();
+const Tab = createMaterialTopTabNavigator();
 const HomeStack = createNativeStackNavigator();
 const CollectionsStack = createNativeStackNavigator();
 const AskAIStack = createNativeStackNavigator();
@@ -51,8 +47,7 @@ const InsightsStack = createNativeStackNavigator();
 // ─── Stack navigators ────────────────────────────────────────
 
 function HomeStackNavigator() {
-  const { palette, isDark } = useTheme();
-
+  const { palette } = useTheme();
   return (
     <HomeStack.Navigator
       screenOptions={{
@@ -63,26 +58,10 @@ function HomeStackNavigator() {
         contentStyle: { backgroundColor: palette.background },
       }}
     >
-      <HomeStack.Screen
-        name={HOME_ROUTES.QUEUE}
-        component={HomeQueueScreen}
-        options={{ headerShown: false }}
-      />
-      <HomeStack.Screen
-        name={HOME_ROUTES.DETAIL}
-        component={ActionDetailScreen}
-        options={{ title: 'Action Detail' }}
-      />
-      <HomeStack.Screen
-        name={HOME_ROUTES.PROFILE}
-        component={ProfileScreen}
-        options={{ title: 'Profile' }}
-      />
-      <HomeStack.Screen
-        name={HOME_ROUTES.ALBUM_PICKER}
-        component={AlbumPickerScreen}
-        options={{ title: 'Select Folder' }}
-      />
+      <HomeStack.Screen name={HOME_ROUTES.QUEUE} component={HomeQueueScreen} options={{ headerShown: false }} />
+      <HomeStack.Screen name={HOME_ROUTES.DETAIL} component={ActionDetailScreen} options={{ title: 'Action Detail' }} />
+      <HomeStack.Screen name={HOME_ROUTES.PROFILE} component={ProfileScreen} options={{ title: 'Profile' }} />
+      <HomeStack.Screen name={HOME_ROUTES.ALBUM_PICKER} component={AlbumPickerScreen} options={{ title: 'Select Folder' }} />
     </HomeStack.Navigator>
   );
 }
@@ -98,26 +77,10 @@ function CollectionsStackNavigator() {
         headerTitleStyle: { fontWeight: '700' },
       }}
     >
-      <CollectionsStack.Screen
-        name={COLLECTION_ROUTES.HOME}
-        component={CollectionsScreen}
-        options={{ headerShown: false }}
-      />
-      <CollectionsStack.Screen
-        name={COLLECTION_ROUTES.SEARCH}
-        component={CollectionSearchScreen}
-        options={{ title: 'Search' }}
-      />
-      <CollectionsStack.Screen
-        name={COLLECTION_ROUTES.CATEGORY}
-        component={CollectionCategoryScreen}
-        options={{ title: 'Category' }}
-      />
-      <CollectionsStack.Screen
-        name={COLLECTION_ROUTES.THREAD}
-        component={CollectionThreadScreen}
-        options={{ title: 'Thread' }}
-      />
+      <CollectionsStack.Screen name={COLLECTION_ROUTES.HOME} component={CollectionsScreen} options={{ headerShown: false }} />
+      <CollectionsStack.Screen name={COLLECTION_ROUTES.SEARCH} component={CollectionSearchScreen} options={{ title: 'Search' }} />
+      <CollectionsStack.Screen name={COLLECTION_ROUTES.CATEGORY} component={CollectionCategoryScreen} options={{ title: 'Category' }} />
+      <CollectionsStack.Screen name={COLLECTION_ROUTES.THREAD} component={CollectionThreadScreen} options={{ title: 'Thread' }} />
     </CollectionsStack.Navigator>
   );
 }
@@ -133,21 +96,9 @@ function AskAIStackNavigator() {
         headerTitleStyle: { fontWeight: '700' },
       }}
     >
-      <AskAIStack.Screen
-        name={ASK_AI_ROUTES.HOME}
-        component={AskAIScreen}
-        options={{ headerShown: false }}
-      />
-      <AskAIStack.Screen
-        name={ASK_AI_ROUTES.CHAT}
-        component={AskAIChatScreen}
-        options={{ title: 'Chat' }}
-      />
-      <AskAIStack.Screen
-        name={ASK_AI_ROUTES.BOARD}
-        component={AskAIBoardScreen}
-        options={{ title: 'Board' }}
-      />
+      <AskAIStack.Screen name={ASK_AI_ROUTES.HOME} component={AskAIScreen} options={{ headerShown: false }} />
+      <AskAIStack.Screen name={ASK_AI_ROUTES.CHAT} component={AskAIChatScreen} options={{ title: 'Chat' }} />
+      <AskAIStack.Screen name={ASK_AI_ROUTES.BOARD} component={AskAIBoardScreen} options={{ title: 'Board' }} />
     </AskAIStack.Navigator>
   );
 }
@@ -163,28 +114,14 @@ function InsightsStackNavigator() {
         headerTitleStyle: { fontWeight: '700' },
       }}
     >
-      <InsightsStack.Screen
-        name={INSIGHTS_ROUTES.HOME}
-        component={InsightsScreen}
-        options={{ headerShown: false }}
-      />
-      <InsightsStack.Screen
-        name={INSIGHTS_ROUTES.STATS}
-        component={InsightsStatsScreen}
-        options={{ title: 'Stats' }}
-      />
-      <InsightsStack.Screen
-        name={INSIGHTS_ROUTES.STREAK}
-        component={InsightsStreakScreen}
-        options={{ title: 'Streak' }}
-      />
+      <InsightsStack.Screen name={INSIGHTS_ROUTES.HOME} component={InsightsScreen} options={{ headerShown: false }} />
+      <InsightsStack.Screen name={INSIGHTS_ROUTES.STATS} component={InsightsStatsScreen} options={{ title: 'Stats' }} />
+      <InsightsStack.Screen name={INSIGHTS_ROUTES.STREAK} component={InsightsStreakScreen} options={{ title: 'Streak' }} />
     </InsightsStack.Navigator>
   );
 }
 
-// ─── Tab icon map ────────────────────────────────────────────
-
-import { useQueue } from '../state/QueueContext';
+// ─── Custom Tab Bar Components ────────────────────────────────
 
 const TAB_ICONS = {
   Home,
@@ -193,9 +130,25 @@ const TAB_ICONS = {
   Insights: BarChart3,
 };
 
+function TabIconWithBadge({ name, color, size, badge }) {
+  const Icon = TAB_ICONS[name];
+  const { palette } = useTheme();
+  
+  return (
+    <View style={styles.iconContainer}>
+      <Icon size={size - 2} color={color} strokeWidth={1.8} />
+      {badge && (
+        <View style={[styles.badge, { backgroundColor: palette.urgencyRed }]}>
+          <Text style={styles.badgeText}>{badge}</Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
 function MainTabNavigator() {
   const { palette, isDark } = useTheme();
-  const { queueItems, allItems } = useQueue();
+  const { queueItems } = useQueue();
 
   const homeBadge = queueItems.filter((i) => !i.viewed).length;
   const isMonday = new Date().getDay() === 1;
@@ -203,47 +156,69 @@ function MainTabNavigator() {
 
   return (
     <Tab.Navigator
+      tabBarPosition="bottom"
       screenOptions={({ route }) => ({
-        headerShown: false,
         tabBarActiveTintColor: palette.tabBarActive,
         tabBarInactiveTintColor: palette.tabBarInactive,
+        tabBarIndicatorStyle: { height: 0 }, // Hide top tab indicator
+        tabBarPressColor: 'transparent',
+        tabBarLabelStyle: {
+          fontSize: 10,
+          fontWeight: '700',
+          textTransform: 'none',
+          marginTop: -2,
+        },
         tabBarStyle: {
-          height: 68,
-          paddingBottom: 10,
-          paddingTop: 8,
+          height: 80,
           backgroundColor: palette.tabBarBackground,
           borderTopColor: palette.tabBarBorder,
           borderTopWidth: isDark ? 1 : StyleSheet.hairlineWidth,
+          elevation: 0,
+          shadowOpacity: 0,
         },
-        tabBarLabelStyle: {
-          fontSize: 11,
-          fontWeight: '600',
-          letterSpacing: 0.2,
-        },
-        tabBarIcon: ({ color, size }) => {
-          const Icon = TAB_ICONS[route.name];
-          return Icon ? <Icon size={size - 2} color={color} strokeWidth={1.8} /> : null;
+        tabBarIcon: ({ color, focused }) => {
+          let badge = null;
+          if (route.name === 'Home') badge = homeBadge > 0 ? homeBadge : null;
+          if (route.name === 'Insights') badge = insightsBadge;
+          
+          return <TabIconWithBadge name={route.name} color={color} size={24} badge={badge} />;
         },
       })}
     >
-      <Tab.Screen 
-        name="Home" 
-        component={HomeStackNavigator} 
-        options={{ tabBarBadge: homeBadge }}
-      />
-      <Tab.Screen 
-        name="Collections" 
-        component={CollectionsStackNavigator} 
-      />
+      <Tab.Screen name="Home" component={HomeStackNavigator} />
+      <Tab.Screen name="Collections" component={CollectionsStackNavigator} />
       <Tab.Screen name="Ask AI" component={AskAIStackNavigator} />
-      <Tab.Screen 
-        name="Insights" 
-        component={InsightsStackNavigator} 
-        options={{ tabBarBadge: insightsBadge }}
-      />
+      <Tab.Screen name="Insights" component={InsightsStackNavigator} />
     </Tab.Navigator>
   );
 }
+
+const styles = StyleSheet.create({
+  iconContainer: {
+    width: 30,
+    height: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  badge: {
+    position: 'absolute',
+    top: -4,
+    right: -6,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+    borderWidth: 1.5,
+    borderColor: '#FFF',
+  },
+  badgeText: {
+    color: '#FFF',
+    fontSize: 8,
+    fontWeight: '900',
+  },
+});
 
 function AppNavigatorContent() {
   const { hasCompletedOnboarding, isLoading, palette } = useOnboarding();
@@ -274,5 +249,3 @@ export default function AppNavigator() {
     </OnboardingProvider>
   );
 }
-
-

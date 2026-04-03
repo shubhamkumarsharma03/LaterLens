@@ -46,7 +46,7 @@ export async function scheduleDailyDigest() {
     const digestTime = await getSetting(SETTINGS_KEYS.DAILY_DIGEST_TIME, '19:00');
     const [hours, minutes] = digestTime.split(':').map(Number);
 
-    // 2. Schedule with High Importance for Android
+    // 2. Schedule with High Importance and explicit Channel ID for Android
     const id = await Notifications.scheduleNotificationAsync({
       content: {
         title: "LaterLens: Time to Review",
@@ -54,6 +54,8 @@ export async function scheduleDailyDigest() {
         data: { type: 'daily_digest' },
         sound: true,
         priority: Notifications.AndroidNotificationPriority.MAX,
+        // CRITICAL: Must match the channel ID created in App.js
+        channelId: 'default', 
       },
       trigger: {
         hour: hours,
@@ -64,7 +66,7 @@ export async function scheduleDailyDigest() {
 
     console.log(`[NotificationService] Daily Digest scheduled (ID: ${id}) for ${digestTime}`);
     
-    // For immediate testing: list all to confirm
+    // List all to confirm
     const all = await Notifications.getAllScheduledNotificationsAsync();
     console.log(`[NotificationService] Total scheduled now: ${all.length}`);
   } catch (error) {
@@ -77,6 +79,7 @@ export async function scheduleDailyDigest() {
  */
 export async function sendNotification(title, body, data = {}) {
   try {
+    // Respect quiet hours logic
     const isQuiet = await isInQuietHours();
     if (isQuiet) {
       console.log('[NotificationService] Quiet hours enabled. Silencing notification.');
@@ -89,9 +92,13 @@ export async function sendNotification(title, body, data = {}) {
         body,
         data,
         sound: true,
+        priority: Notifications.AndroidNotificationPriority.MAX,
+        // CRITICAL: Explicitly set channelId for Android heads-up alerts
+        channelId: 'default',
       },
       trigger: null, // immediate
     });
+    console.log(`[NotificationService] Immediate notification sent: ${title}`);
   } catch (error) {
     console.error('[NotificationService] Error sending notification:', error);
   }

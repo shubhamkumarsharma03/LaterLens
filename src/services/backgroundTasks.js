@@ -28,11 +28,20 @@ Notifications.setNotificationHandler({
   }),
 });
 
-async function getRecentScreenshotAssets(limit = 5) {
+export async function getRecentScreenshotAssets(limit = 5) {
   try {
-    const screenshotAlbum = await findScreenshotAlbum();
+    // 1. Mandatory Permission Check - Fixes native crashes
+    const { status } = await MediaLibrary.getPermissionsAsync();
+    if (status !== 'granted') {
+      console.log('[BackgroundTask] MediaLibrary permission not granted. Skipping.');
+      return [];
+    }
 
-    if (!screenshotAlbum) return [];
+    const screenshotAlbum = await findScreenshotAlbum();
+    if (!screenshotAlbum) {
+      console.log('[BackgroundTask] No screenshot album found.');
+      return [];
+    }
 
     const isInitialScanDone = await getInitialScanStatus();
     const lastTimestamp = await getLastScannedTimestamp();
@@ -57,6 +66,7 @@ async function getRecentScreenshotAssets(limit = 5) {
         createdAfter: createdAfter,
       });
     } catch (e) {
+      console.log('[BackgroundTask] Error in getAssetsAsync:', e);
       return [];
     }
 
@@ -84,7 +94,7 @@ async function getRecentScreenshotAssets(limit = 5) {
 
     return resolved;
   } catch (error) {
-    console.log('[BackgroundTask] Error fetching assets:', error);
+    console.log('[BackgroundTask] Error in getRecentScreenshotAssets:', error);
     return [];
   }
 }
@@ -134,19 +144,8 @@ TaskManager.defineTask(BACKGROUND_SCREENSHOT_TASK, async () => {
       if (timestamp > newestTimestamp) newestTimestamp = timestamp;
 
       let metadata;
-      if (aiMode === 'on-device') {
-        const extractedText = await extractTextFromImage(uri);
-        metadata = {
-          contentType: 'Screenshot',
-          intent: 'Saved locally',
-          tags: ['Private'],
-          suggestedAction: 'View later',
-          summary: 'Processed on-device',
-        };
-      } else {
-        const extractedText = await extractTextFromImage(uri);
-        metadata = await analyzeScreenshotContext(extractedText);
-      }
+      const extractedText = await extractTextFromImage(uri);
+      metadata = await analyzeScreenshotContext(extractedText);
       
       const queueItem = {
         id: `${Date.now()}-${assetId}`,

@@ -46,11 +46,11 @@ Rules:
 - If evidence is weak, infer best-effort values and keep summary honest.
 - tags must be lowercase unless they are proper nouns.`;
 
-function parseGeminiJson(rawText) {
+function parseAiJsonResponse(rawText) {
   const trimmed = (rawText || '').trim();
 
   if (!trimmed) {
-    throw new Error('Gemini returned an empty response.');
+    throw new Error('AI Provider returned an empty response.');
   }
 
   let candidate = trimmed;
@@ -160,7 +160,7 @@ export async function analyzeScreenshotContext(extractedText) {
       const payload = await response.json();
       const modelText = payload?.choices?.[0]?.message?.content || '';
 
-      const parsed = parseGeminiJson(modelText); // Reuse helper to parse JSON
+      const parsed = parseAiJsonResponse(modelText); 
       console.log('[AI] Parsed screenshot metadata (Groq):', parsed);
       return parsed;
 

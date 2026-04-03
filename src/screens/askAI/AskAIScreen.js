@@ -92,7 +92,7 @@ export default function AskAIScreen() {
       <View style={styles.headerRow}>
         <View>
           <Text style={[TYPOGRAPHY.heroTitle, { color: palette.textPrimary }]}>Ask AI</Text>
-          <Text style={[TYPOGRAPHY.tiny, { color: palette.textSecondary }]}>Powered by Gemini 2.5 Flash</Text>
+          <Text style={[TYPOGRAPHY.tiny, { color: palette.textSecondary }]}>Powered by Groq Cloud</Text>
         </View>
         <View style={styles.headerActions}>
           <Pressable 

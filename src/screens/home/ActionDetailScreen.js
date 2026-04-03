@@ -5,7 +5,7 @@
  * and large action buttons — all themed for Light / Dark.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { ScrollView, StyleSheet, Text, View, Pressable, Image } from 'react-native';
 import { ArrowLeft, ChevronRight } from 'lucide-react-native';
@@ -13,6 +13,7 @@ import * as Haptics from 'expo-haptics';
 import { useQueue } from '../../state/QueueContext';
 import { useTheme } from '../../theme/useTheme';
 import { TYPOGRAPHY, SPACING, RADIUS } from '../../theme/colors';
+import { HOME_ROUTES } from '../../navigation/routeNames';
 
 // ── Components ──
 import OCRImageOverlay from './components/OCRImageOverlay';
@@ -30,7 +31,8 @@ export default function ActionDetailScreen() {
     completeQueueItem, 
     archiveQueueItem, 
     snoozeQueueItem,
-    markAsViewed
+    markAsViewed,
+    allItems
   } = useQueue();
   const { palette, isDark } = useTheme();
 
@@ -43,6 +45,21 @@ export default function ActionDetailScreen() {
       markAsViewed(itemId);
     }
   }, [itemId, markAsViewed]);
+
+  // ── Related Items Logic ──
+  const relatedItems = useMemo(() => {
+    if (!item || !allItems) return [];
+    
+    return allItems
+      .filter(i => 
+        i.id !== item.id && 
+        i.status !== 'archived' &&
+        (i.contentType === item.contentType || 
+         (i.summary && item.summary && i.summary.split(' ').some(word => word.length > 4 && item.summary.includes(word))))
+      )
+      .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+      .slice(0, 6);
+  }, [item, allItems]);
 
   // ── Handlers ──
   const handleUpdate = async (updates) => {
@@ -67,11 +84,10 @@ export default function ActionDetailScreen() {
   const handleSnooze = async () => {
     if (!item) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    await snoozeQueueItem(item.id, 60 * 24); // Snooze for 1 day by default
+    await snoozeQueueItem(item.id, 60 * 24); // Snooze for 1 day
     navigation.goBack();
   };
 
-  // ── Not found ──
   if (!item) {
     return (
       <View style={[styles.emptyContainer, { backgroundColor: palette.background }]}>
@@ -95,27 +111,23 @@ export default function ActionDetailScreen() {
       contentContainerStyle={styles.container}
       showsVerticalScrollIndicator={false}
     >
-      {/* ── 1. Screenshot View ── */}
       <OCRImageOverlay 
         imageUri={item.imageUri} 
         showOCR={showOCR} 
         onToggleOCR={() => setShowOCR(!showOCR)} 
       />
 
-      {/* ── 2. Date + Source Label ── */}
       <View style={styles.sourceRow}>
         <Text style={[TYPOGRAPHY.tiny, { color: palette.textSecondary }]}>
-          Saved {getTimeAgo(item.timestamp)} • from {item.source || 'Instagram'}
+          Saved {getTimeAgo(item.timestamp)} • from {item.source || 'Intelligence'}
         </Text>
       </View>
 
-      {/* ── 3. AI Analysis Panel ── */}
       <EditableAIPanel 
         item={item} 
         onUpdate={handleUpdate} 
       />
 
-      {/* ── 4. Action Zone ── */}
       <ActionZone 
         item={item} 
         onComplete={handleComplete}
@@ -123,32 +135,41 @@ export default function ActionDetailScreen() {
         onArchive={handleArchive}
       />
 
-      {/* ── 5. Related Items Strip ── */}
-      <View style={styles.relatedSection}>
-        <Text style={[TYPOGRAPHY.subtitle, { color: palette.textPrimary, marginBottom: SPACING.md }]}>
-          Related to this
-        </Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.relatedScroll}>
-          {[1, 2, 3, 4].map((i) => (
-            <View key={i} style={[styles.relatedThumbnail, { backgroundColor: i % 2 === 0 ? '#E5E7EB' : '#D1D5DB', borderColor: palette.border, borderWidth: 1 }]}>
-               {/* Placeholders for related screenshots */}
-               <Image source={{ uri: item.imageUri }} style={styles.thumbImage} />
-            </View>
-          ))}
-        </ScrollView>
-      </View>
+      {/* Dynamic Related Section */}
+      {relatedItems.length > 0 && (
+        <View style={styles.relatedSection}>
+          <Text style={[TYPOGRAPHY.subtitle, { color: palette.textPrimary, marginBottom: SPACING.md }]}>
+            Related to this
+          </Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.relatedScroll}>
+            {relatedItems.map((related) => (
+              <Pressable 
+                key={related.id} 
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  navigation.push(HOME_ROUTES.DETAIL, { itemId: related.id });
+                }}
+                style={[styles.relatedThumbnail, { borderColor: palette.border, borderWidth: 1 }]}
+              >
+                 <Image source={{ uri: related.imageUri }} style={styles.thumbImage} />
+                 <View style={styles.relatedLabelBg}>
+                   <Text style={styles.relatedLabelText} numberOfLines={1}>{related.contentType}</Text>
+                 </View>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+      )}
 
-      {/* ── 6. User Notes (Markdown + Autosave) ── */}
       <UserNotesSection 
         item={item} 
         onUpdate={handleUpdate} 
       />
 
-      {/* ── 7. Thread Membership ── */}
       <Pressable style={[styles.threadBtn, { backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F3F4F6' }]}>
         <View style={styles.threadInfo}>
           <Text style={[TYPOGRAPHY.tiny, { color: palette.textSecondary }]}>PART OF THREAD</Text>
-          <Text style={[TYPOGRAPHY.bodyBold, { color: palette.textPrimary }]}>Your app ideas • 4 screenshots</Text>
+          <Text style={[TYPOGRAPHY.bodyBold, { color: palette.textPrimary }]}>Smart Organization • Active</Text>
         </View>
         <ChevronRight size={20} color={palette.textSecondary} />
       </Pressable>
@@ -157,6 +178,7 @@ export default function ActionDetailScreen() {
 }
 
 function getTimeAgo(timestamp) {
+  if (!timestamp) return 'recently';
   const diff = Date.now() - timestamp;
   const days = Math.floor(diff / (1000 * 60 * 60 * 24));
   if (days === 0) return 'today';
@@ -184,11 +206,27 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.md,
     marginRight: SPACING.sm,
     overflow: 'hidden',
+    position: 'relative',
   },
   thumbImage: {
     width: '100%',
     height: '100%',
-    opacity: 0.6,
+  },
+  relatedLabelBg: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+  },
+  relatedLabelText: {
+    color: '#FFF',
+    fontSize: 9,
+    fontWeight: '800',
+    textAlign: 'center',
+    textTransform: 'uppercase',
   },
   threadBtn: {
     flexDirection: 'row',

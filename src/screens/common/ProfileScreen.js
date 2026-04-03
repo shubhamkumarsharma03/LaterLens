@@ -23,6 +23,9 @@ import { useSettings } from '../../state/SettingsContext';
 import { TYPOGRAPHY, SPACING, RADIUS } from '../../theme/colors';
 import { HOME_ROUTES } from '../../navigation/routeNames';
 
+import { getGroqApiKey, saveGroqApiKey } from '../../services/settingsStorage';
+import { validateGroqKey } from '../../services/aiProcessingEngine';
+
 import SettingCard from '../../components/settings/SettingCard';
 import StorageUsageBar from '../../components/settings/StorageUsageBar';
 import { calculateStorageStats, exportMetadata, bulkImportScreenshots, wipeAllAppData } from '../../services/dataManagementService';
@@ -44,10 +47,13 @@ export default function ProfileScreen() {
   const [isNotificationModalVisible, setIsNotificationModalVisible] = useState(false);
   const [isArchiveModalVisible, setIsArchiveModalVisible] = useState(false);
   const [isQuietHoursModalVisible, setIsQuietHoursModalVisible] = useState(false);
+  const [isApiKeyModalVisible, setIsApiKeyModalVisible] = useState(false);
 
   // Temporary State for Modals
   const [newExclusion, setNewExclusion] = useState('');
   const [tempQuietHours, setTempQuietHours] = useState(settings.quietHours);
+  const [tempApiKey, setTempApiKey] = useState('');
+  const [isValidating, setIsValidating] = useState(false);
 
   useEffect(() => {
     loadStats();
@@ -168,7 +174,7 @@ export default function ProfileScreen() {
           <SettingCard
             icon={Brain}
             title="AI Processing Mode"
-            description={settings.aiMode === 'on-device' ? 'On-device OCR is active.' : 'Cloud AI (Gemini 1.5) is active.'}
+            description={settings.aiMode === 'on-device' ? 'On-device OCR is active.' : 'Cloud AI (Llama 3.1) is active.'}
           >
             <View style={styles.toggleRow}>
               <Pressable 
@@ -204,6 +210,18 @@ export default function ProfileScreen() {
             toggleValue={settings.wifiOnly}
             onToggleChange={(v) => handleToggle('wifiOnly', v)}
             tags={['data usage']}
+          />
+
+          <SettingCard
+            icon={Zap}
+            title="Groq API Configuration"
+            description="Use your own API key for cloud analysis."
+            onPress={async () => {
+              const key = await getGroqApiKey();
+              setTempApiKey(key || '');
+              setIsApiKeyModalVisible(true);
+            }}
+            tags={['api key']}
           />
         </View>
 
@@ -477,6 +495,61 @@ export default function ProfileScreen() {
               onPress={() => setIsQuietHoursModalVisible(false)}
             >
               <Text style={[TYPOGRAPHY.buttonLabel, { color: '#FFF' }]}>Save Window</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      {/* API Key Modal */}
+      <Modal visible={isApiKeyModalVisible} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: palette.card }]}>
+             <View style={styles.modalHeader}>
+              <Text style={[TYPOGRAPHY.subtitle, { color: palette.textPrimary }]}>Groq API Configuration</Text>
+              <Pressable onPress={() => setIsApiKeyModalVisible(false)}><X color={palette.textSecondary} /></Pressable>
+            </View>
+            <Text style={[TYPOGRAPHY.caption, { color: palette.textSecondary, marginBottom: 16 }]}>Enter your Groq Cloud API key. If left blank, LaterLens will use the internal system key.</Text>
+            
+            <TextInput 
+              style={[styles.modalInput, { borderColor: palette.border, color: palette.textPrimary, marginBottom: 16 }]}
+              placeholder="gsk_..."
+              placeholderTextColor={palette.textSecondary}
+              value={tempApiKey}
+              onChangeText={setTempApiKey}
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+
+            <Pressable 
+              style={[styles.saveBtn, { backgroundColor: palette.primary, opacity: isValidating ? 0.6 : 1 }]}
+              onPress={async () => {
+                if (!tempApiKey.trim()) {
+                  await saveGroqApiKey(null);
+                  setIsApiKeyModalVisible(false);
+                  Alert.alert('Reset', 'Reverted to internal API key.');
+                  return;
+                }
+                setIsValidating(true);
+                const isValid = await validateGroqKey(tempApiKey.trim());
+                if (isValid) {
+                  await saveGroqApiKey(tempApiKey.trim());
+                  setIsApiKeyModalVisible(false);
+                  Alert.alert('Success', 'Your API key is valid and has been saved.');
+                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                } else {
+                  Alert.alert('Error', 'Invalid API key. Please check and try again.');
+                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                }
+                setIsValidating(false);
+              }}
+              disabled={isValidating}
+            >
+              {isValidating ? (
+                <ActivityIndicator color="#FFF" />
+              ) : (
+                <Text style={[TYPOGRAPHY.buttonLabel, { color: '#FFF' }]}>Validate & Save</Text>
+              )}
             </Pressable>
           </View>
         </View>

@@ -1,11 +1,10 @@
-import { createContext, useCallback, useContext, useMemo, useReducer } from 'react';
+import { createContext, useCallback, useContext, useMemo, useReducer, useEffect } from 'react';
 import {
   getActionQueue,
   replaceActionQueue,
   saveActionItem,
 } from '../services/actionQueueStorage';
 import { initialQueueState, QUEUE_ACTIONS, queueReducer } from './queueReducer';
-import { generateMockCollections } from '../services/mockData';
 
 const QueueContext = createContext(null);
 
@@ -17,11 +16,12 @@ const STATUS = {
 };
 
 function normalizeItem(item) {
+  if (!item) return null;
   return {
     ...item,
     status: item?.status || STATUS.QUEUED,
     snoozeUntil: item?.snoozeUntil || null,
-    intent: item?.intent || 'I think you want to look at this later.',
+    intent: item?.intent || 'Review this later.',
     notes: item?.notes || '',
     source: item?.source || 'Screenshot',
     tags: item?.tags || [],
@@ -30,6 +30,7 @@ function normalizeItem(item) {
 }
 
 function sortNewest(items) {
+  if (!Array.isArray(items)) return [];
   return [...items].sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
 }
 
@@ -37,29 +38,44 @@ export function QueueProvider({ children }) {
   const [state, dispatch] = useReducer(queueReducer, initialQueueState);
 
   const persistQueue = useCallback(async (nextItems) => {
-    const normalized = sortNewest(nextItems.map(normalizeItem));
-    await replaceActionQueue(normalized);
-    dispatch({ type: QUEUE_ACTIONS.SET_ITEMS, payload: normalized });
-    return normalized;
+    try {
+      const normalized = sortNewest((nextItems || []).map(normalizeItem).filter(Boolean));
+      await replaceActionQueue(normalized);
+      dispatch({ type: QUEUE_ACTIONS.SET_ITEMS, payload: normalized });
+      return normalized;
+    } catch (e) {
+      console.error('[QueueContext] Persist failed:', e);
+      return nextItems;
+    }
   }, []);
 
   const hydrateQueue = useCallback(async () => {
-    let queue = await getActionQueue();
-    const normalized = sortNewest(queue.map(normalizeItem));
-    dispatch({ type: QUEUE_ACTIONS.HYDRATE, payload: normalized });
-    return normalized;
+    try {
+      let queue = await getActionQueue();
+      const normalized = sortNewest((queue || []).map(normalizeItem).filter(Boolean));
+      dispatch({ type: QUEUE_ACTIONS.HYDRATE, payload: normalized });
+      return normalized;
+    } catch (e) {
+      console.error('[QueueContext] Hydration failed:', e);
+      return [];
+    }
   }, []);
 
   const addQueueItem = useCallback(async (item) => {
-    const updatedQueue = await saveActionItem(
-      normalizeItem({
-        ...item,
-        status: STATUS.QUEUED,
-        snoozeUntil: null,
-      })
-    );
-    dispatch({ type: QUEUE_ACTIONS.HYDRATE, payload: updatedQueue.map(normalizeItem) });
-    return updatedQueue;
+    try {
+      const updatedQueue = await saveActionItem(
+        normalizeItem({
+          ...item,
+          status: STATUS.QUEUED,
+          snoozeUntil: null,
+        })
+      );
+      dispatch({ type: QUEUE_ACTIONS.HYDRATE, payload: (updatedQueue || []).map(normalizeItem).filter(Boolean) });
+      return updatedQueue;
+    } catch (e) {
+      console.error('[QueueContext] Add item failed:', e);
+      return null;
+    }
   }, []);
 
   const completeQueueItem = useCallback(
@@ -140,8 +156,11 @@ export function QueueProvider({ children }) {
         item.id === itemId ? { ...item, ...updates } : item
       );
       dispatch({ type: QUEUE_ACTIONS.UPDATE_ITEM, payload: { id: itemId, updates } });
-      // Persist to storage
-      await replaceActionQueue(nextQueue);
+      try {
+        await replaceActionQueue(nextQueue);
+      } catch (e) {
+        console.error('[QueueContext] Update item persist failed:', e);
+      }
       return nextQueue;
     },
     [state.items]
@@ -210,10 +229,10 @@ export function QueueProvider({ children }) {
 
   const value = useMemo(
     () => ({
-      allItems: state.items,
-      queueItems,
-      collectionItems,
-      queueHydrated: state.hydrated,
+      allItems: state.items || [],
+      queueItems: queueItems || [],
+      collectionItems: collectionItems || [],
+      queueHydrated: state.hydrated || false,
       hydrateQueue,
       addQueueItem,
       completeQueueItem,
