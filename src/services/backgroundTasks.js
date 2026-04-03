@@ -2,6 +2,7 @@ import * as TaskManager from 'expo-task-manager';
 import * as BackgroundFetch from 'expo-background-fetch';
 import * as Notifications from 'expo-notifications';
 import * as MediaLibrary from 'expo-media-library';
+import * as Network from 'expo-network';
 import { Platform } from 'react-native';
 import { getActionQueue, saveActionItem } from './actionQueueStorage';
 import { extractTextFromImage, analyzeScreenshotContext } from './aiProcessingEngine';
@@ -11,7 +12,10 @@ import {
   setInitialScanStatus,
   getLastScannedTimestamp,
   setLastScannedTimestamp,
+  getSetting,
+  SETTINGS_KEYS,
 } from './settingsStorage';
+import { sendNotification } from './notificationService';
 
 const BACKGROUND_SCREENSHOT_TASK = 'BACKGROUND_SCREENSHOT_TASK';
 
@@ -38,12 +42,9 @@ async function getRecentScreenshotAssets(limit = 5) {
     today.setHours(0, 0, 0, 0);
     const startOfToday = today.getTime();
 
-    // If it's the first time for this folder/install, only scan from today.
-    // Otherwise, scan from the last recorded timestamp to ensure no gaps.
     let createdAfter = lastTimestamp;
     if (!isInitialScanDone) {
       createdAfter = startOfToday;
-      console.log('[BackgroundTask] First scan for this folder. Limiting to today.');
     }
 
     let assetsPage;
@@ -92,7 +93,23 @@ async function getRecentScreenshotAssets(limit = 5) {
 TaskManager.defineTask(BACKGROUND_SCREENSHOT_TASK, async () => {
   console.log('[BackgroundTask] Firing silent screenshot scan...');
   try {
-    const assets = await getRecentScreenshotAssets(3); // Limit background processing to 3 at a time
+    // 1. Check Global Processing Flags
+    const autoProcessing = await getSetting(SETTINGS_KEYS.AUTO_PROCESSING_ENABLED, true);
+    if (!autoProcessing) {
+      console.log('[BackgroundTask] Auto-processing is disabled. Skipping.');
+      return BackgroundFetch.BackgroundFetchResult.NoData;
+    }
+
+    const wifiOnly = await getSetting(SETTINGS_KEYS.WIFI_ONLY, false);
+    if (wifiOnly) {
+      const net = await Network.getNetworkStateAsync();
+      if (net.type !== Network.NetworkStateType.WIFI) {
+        console.log('[BackgroundTask] Process on Wi-Fi only is enabled. Skipping.');
+        return BackgroundFetch.BackgroundFetchResult.NoData;
+      }
+    }
+
+    const assets = await getRecentScreenshotAssets(3);
     if (!assets || assets.length === 0) {
       return BackgroundFetch.BackgroundFetchResult.NoData;
     }
@@ -102,13 +119,12 @@ TaskManager.defineTask(BACKGROUND_SCREENSHOT_TASK, async () => {
       !queue.some(item => item.assetId === asset.id || item.imageUri === asset.uri)
     );
 
-    if (newAssets.length === 0) {
-      return BackgroundFetch.BackgroundFetchResult.NoData;
-    }
+    if (newAssets.length === 0) return BackgroundFetch.BackgroundFetchResult.NoData;
 
     console.log(`[BackgroundTask] Found ${newAssets.length} new screenshots...`);
 
     let newestTimestamp = 0;
+    const aiMode = await getSetting(SETTINGS_KEYS.AI_MODE, 'cloud');
 
     for (const asset of newAssets) {
       const uri = asset.uri;
@@ -117,32 +133,36 @@ TaskManager.defineTask(BACKGROUND_SCREENSHOT_TASK, async () => {
       
       if (timestamp > newestTimestamp) newestTimestamp = timestamp;
 
-      const extractedText = await extractTextFromImage(uri);
-      const metadata = await analyzeScreenshotContext(extractedText);
+      let metadata;
+      if (aiMode === 'on-device') {
+        const extractedText = await extractTextFromImage(uri);
+        metadata = {
+          contentType: 'Screenshot',
+          intent: 'Saved locally',
+          tags: ['Private'],
+          suggestedAction: 'View later',
+          summary: 'Processed on-device',
+        };
+      } else {
+        const extractedText = await extractTextFromImage(uri);
+        metadata = await analyzeScreenshotContext(extractedText);
+      }
       
       const queueItem = {
         id: `${Date.now()}-${assetId}`,
         assetId,
         imageUri: uri,
         timestamp: asset.creationTime || Date.now(),
-        contentType: metadata.contentType,
-        intent: metadata.intent,
-        tags: metadata.tags,
-        suggestedAction: metadata.suggestedAction,
-        summary: metadata.summary,
-        extractedUrl: metadata.extractedUrl || null,
+        ...metadata,
         status: 'queued',
       };
 
       await saveActionItem(queueItem);
 
-      await Notifications.scheduleNotificationAsync({
-        content: {
-          title: 'LaterLens: Action Saved',
-          body: `Analyzed a ${metadata.contentType} screenshot: ${metadata.suggestedAction}`,
-        },
-        trigger: null,
-      });
+      await sendNotification(
+        'LaterLens: Action Saved',
+        `Analyzed a ${metadata.contentType} screenshot: ${metadata.suggestedAction}`
+      );
     }
 
     // Update scan state
@@ -151,9 +171,6 @@ TaskManager.defineTask(BACKGROUND_SCREENSHOT_TASK, async () => {
       if (newestTimestamp > 0) {
         await setLastScannedTimestamp(newestTimestamp);
       }
-    } else if (newAssets.length === 0 && assets.length > 0) {
-        // Even if all are filtered out, we've completed the "initial scan" check for those items
-        await setInitialScanStatus(true);
     }
 
     return BackgroundFetch.BackgroundFetchResult.NewData;

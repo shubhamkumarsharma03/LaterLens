@@ -1,11 +1,15 @@
-# LaterLens — AI-Powered Screenshot Assistant
+# <img src="assets/logo.png" width="40" vertical-align="middle" /> LaterLens — AI-Powered Screenshot Assistant
 
-> **Your screenshots, actionable.** LaterLens is an AI-powered mobile app that reads your screenshots, understands context with Gemini AI + on-device OCR, and creates a smart feed of tasks, reminders, and actions — all processed securely on your device.
+<div align="center" style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; margin: 20px 0;">
+  <video src="assets/LaterLens_Animated_Logo.mp4" width="100%" style="max-height: 250px; display: block; object-fit: cover;" autoplay loop muted></video>
+</div>
+
+> **Your screenshots, actionable.** LaterLens is an AI-powered mobile app that reads your screenshots, understands context with **Groq Cloud (Llama 3.1)** + on-device OCR, and creates a smart feed of tasks, reminders, and actions — all processed securely on your device.
 
 <p align="center">
   <img src="https://img.shields.io/badge/React_Native-0.81-61DAFB?style=for-the-badge&logo=react&logoColor=white" alt="React Native" />
   <img src="https://img.shields.io/badge/Expo_SDK-54-000020?style=for-the-badge&logo=expo&logoColor=white" alt="Expo" />
-  <img src="https://img.shields.io/badge/Gemini_AI-1.5_Flash-4285F4?style=for-the-badge&logo=google&logoColor=white" alt="Gemini" />
+  <img src="https://img.shields.io/badge/Groq_Cloud-Llama_3.1-f3d122?style=for-the-badge&logo=groq&logoColor=black" alt="Groq" />
   <img src="https://img.shields.io/badge/Platform-iOS_%7C_Android-lightgrey?style=for-the-badge" alt="Platform" />
 </p>
 
@@ -13,15 +17,17 @@
 
 ## ✨ Features
 
-- 📸 **Auto Screenshot Analysis** — Fetches your latest screenshot and runs on-device OCR + Gemini AI to extract intent
+- 📸 **Auto Screenshot Analysis** — Fetches your latest screenshot and runs on-device OCR + **Groq AI** to extract intent
 - 🧠 **Smart Categorisation** — AI classifies screenshots into Product, Study Material, Idea, Code, Event, or Receipt
 - ⚡ **Action Queue** — A priority feed of actionable items with suggested next steps (e.g. "Add to Calendar", "Buy Now")
 - 🎯 **Quick Actions** — Complete, Snooze, or Archive items with haptic feedback and smooth animations
 - 📂 **Collections** — Browse all processed screenshots organised by category
 - 🤖 **Ask AI** — Chat with AI about your screenshots for deeper insights
 - 📊 **Insights & Streaks** — Track your productivity patterns
+- ⚙️ **Advanced Settings** — Privacy exclusion rules, auto-archive housekeeping, and Wi-Fi only processing modes
+- 🔔 **Intelligent Scheduling** — Daily digest summaries and quiet hours to protect your focus
 - 🌗 **Premium Light & Dark Themes** — Automatic system-aware theming with carefully crafted palettes
-- 🔒 **Privacy-First** — All OCR processing happens on-device; only extracted text goes to Gemini API
+- 🔒 **Privacy-First** — All OCR processing happens on-device; only extracted text goes to **Groq API**
 
 ---
 
@@ -66,7 +72,7 @@ LaterLens/
 ├── .env                            # Secret env vars (git-ignored)
 ├── .env.example                    # Key template (committed)
 ├── package.json
-├── assets/                         # Icons, splash screen images
+├── assets/                         # Icons, splash screen images, brand assets
 └── src/
     ├── theme/
     │   ├── colors.js               # Design tokens (palettes, typography, spacing)
@@ -86,9 +92,11 @@ LaterLens/
     │   └── routeNames.js          # Route name constants
     ├── state/
     │   ├── QueueContext.js         # Global queue state (React Context)
-    │   └── queueReducer.js        # Queue reducer actions
+    │   └── SettingsContext.js      # Global settings management (Wi-Fi, Privacy, etc.)
     ├── services/
-    │   ├── aiProcessingEngine.js   # OCR + Gemini AI pipeline
+    │   ├── aiProcessingEngine.js   # OCR + Groq Cloud (Llama 3.1) pipeline
+    │   ├── dataManagementService.js# Bulk import, Export & Storage stats
+    │   ├── notificationService.js  # Quiet hours & Digest logic
     │   └── actionQueueStorage.js   # AsyncStorage persistence
     ├── models/
     │   └── actionModels.js         # Content types, intents, statuses
@@ -129,13 +137,13 @@ npm install
 cp .env.example .env
 ```
 
-Open `.env` and add your Gemini API key:
+Open `.env` and add your **Groq API Key**:
 
 ```env
-EXPO_PUBLIC_GEMINI_API_KEY=your_gemini_api_key_here
+EXPO_PUBLIC_GROQ_API_KEY=gsk_your_groq_api_key_here
 ```
 
-> Get your API key from [Google AI Studio](https://aistudio.google.com/apikey).
+> Get your API key from the [Groq Cloud Console](https://console.groq.com/keys).
 
 ### 4. Run the App
 
@@ -188,11 +196,15 @@ npx expo run:ios
 |---|---|
 | Framework | React Native 0.81 (Expo SDK 54) |
 | Language | JavaScript (ES2022) |
-| AI / LLM | Google Gemini 1.5 Flash API |
+| AI / LLM | **Groq Cloud (Llama 3.1 8B Instant)** |
 | OCR | `@react-native-ml-kit/text-recognition` (on-device) |
 | Navigation | React Navigation 7 (Bottom Tabs + Native Stack) |
 | State | React Context + useReducer |
 | Storage | `@react-native-async-storage/async-storage` |
+| Filesystem | `expo-file-system` |
+| Networking | `expo-network` (Wi-Fi detection) |
+| Notifications | `expo-notifications` |
+| Sharing | `expo-sharing` |
 | Icons | `lucide-react-native` |
 | Haptics | `expo-haptics` |
 | Theming | Custom design system + `useColorScheme` |
@@ -200,24 +212,11 @@ npx expo run:ios
 
 ---
 
-## 📱 Screens Overview
-
-| Screen | Description |
-|---|---|
-| **Permissions** | Animated onboarding with glowing camera icon and photo access CTA |
-| **Home Feed** | Branded header, time-of-day greeting, action card feed with swipe gestures |
-| **Action Detail** | Full screenshot view with tags, category badge, and action buttons |
-| **Collections** | Browse all screenshots by category with search |
-| **Ask AI** | Chat with AI about your screenshot content |
-| **Insights** | Productivity stats and streak tracking |
-
----
-
 ## 🔑 Environment Variables
 
 | Variable | Required | Description |
 |---|---|---|
-| `EXPO_PUBLIC_GEMINI_API_KEY` | ✅ | Your Google Gemini API key |
+| `EXPO_PUBLIC_GROQ_API_KEY` | ✅ | Your Groq Cloud API key |
 
 ---
 

@@ -48,3 +48,13 @@ export async function replaceActionQueue(nextQueue) {
     throw error;
   }
 }
+
+export async function clearActionQueue() {
+  try {
+    await AsyncStorage.removeItem(ACTION_QUEUE_KEY);
+    return true;
+  } catch (error) {
+    console.log('[Storage] Failed to clear action queue:', error);
+    return false;
+  }
+}

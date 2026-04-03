@@ -6,7 +6,47 @@ const KEYS = {
   HAS_INITIAL_SCAN_COMPLETED: 'laterlens_has_initial_scan_completed',
   LAST_SCANNED_TIMESTAMP: 'laterlens_last_scanned_timestamp',
   GROQ_API_KEY: 'laterlens_groq_api_key',
+  
+  // AI & Processing
+  AI_MODE: 'laterlens_ai_mode', // 'cloud' (default) or 'on-device'
+  AUTO_PROCESSING_ENABLED: 'laterlens_auto_processing_enabled',
+  WIFI_ONLY: 'laterlens_wifi_only',
+  
+  // Folders & Import
+  WATCHED_FOLDER_IDS: 'laterlens_watched_folder_ids',
+  EXCLUSION_RULES: 'laterlens_exclusion_rules',
+  
+  // Notifications
+  DAILY_DIGEST_TIME: 'laterlens_daily_digest_time',
+  NOTIFICATION_CONFIG: 'laterlens_notification_config',
+  QUIET_HOURS: 'laterlens_quiet_hours',
+  
+  // Data & Storage
+  AUTO_ARCHIVE_DAYS: 'laterlens_auto_archive_days',
 };
+
+/**
+ * Generic getter/setter helpers
+ */
+export async function getSetting(key, defaultValue) {
+  try {
+    const val = await AsyncStorage.getItem(key);
+    return val !== null ? JSON.parse(val) : defaultValue;
+  } catch (e) {
+    return defaultValue;
+  }
+}
+
+export async function saveSetting(key, value) {
+  try {
+    await AsyncStorage.setItem(key, JSON.stringify(value));
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+export const SETTINGS_KEYS = KEYS;
 
 /**
  * Saves the user's preferred screenshot album.
