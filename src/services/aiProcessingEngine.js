@@ -16,7 +16,13 @@ const FALLBACK_RESULT = {
 async function getApiKey() {
   const savedKey = await getGroqApiKey();
   if (savedKey) return savedKey;
-  return process.env.EXPO_PUBLIC_GROQ_API_KEY;
+
+  // Fallback to .env only during local development
+  if (__DEV__) {
+    return process.env.EXPO_PUBLIC_GROQ_API_KEY || null;
+  }
+  
+  return null;
 }
 
 export async function validateGroqKey(key) {

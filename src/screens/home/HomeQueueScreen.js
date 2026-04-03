@@ -28,6 +28,7 @@ import {
   Platform,
   Alert,
   Pressable,
+  Linking,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useNavigation } from '@react-navigation/native';
@@ -182,24 +183,49 @@ export default function HomeQueueScreen() {
           const asset = newAssets[i];
           setProgress(prev => ({ ...prev, current: i + 1 }));
           
-          const text = await extractTextFromImage(asset.uri);
-          const metadata = await analyzeScreenshotContext(text);
-          
-          const newItem = {
-            id: `${Date.now()}-${asset.id}-${i}`,
-            assetId: asset.id,
-            imageUri: asset.uri,
-            timestamp: asset.creationTime || Date.now(),
-            ...metadata,
-            status: 'queued',
-          };
+          try {
+            const text = await extractTextFromImage(asset.uri);
+            const metadata = await analyzeScreenshotContext(text);
+            
+            const newItem = {
+              id: `${Date.now()}-${asset.id}-${i}`,
+              assetId: asset.id,
+              imageUri: asset.uri,
+              timestamp: asset.creationTime || Date.now(),
+              ...metadata,
+              status: 'queued',
+            };
 
-          await addQueueItem(newItem);
+            await addQueueItem(newItem);
+          } catch (error) {
+            // Detailed prompt for missing API key
+            if (error.message && error.message.includes('No Groq API Key found')) {
+              setIsAnalysing(false);
+              Alert.alert(
+                "Groq API Key Required",
+                "Your screenshot analyzer needs an API key to work. Please add your key in Profile -> Settings.\n\nDon't have a key? You can get one for free on Groq.",
+                [
+                  { text: "Get Free Key", onPress: () => Linking.openURL('https://console.groq.com/keys') },
+                  { text: "Setup Guide", onPress: () => Linking.openURL('https://github.com/shubhamkumarsharma03/LaterLens/wiki/Guide') },
+                  { text: "Dismiss", style: "cancel" }
+                ],
+                { cancelable: true }
+              );
+              return; // Stop processing further assets if key is missing
+            }
+            // Log other analysis errors but continue or rethrow
+            console.log('[HomeQueue] Analysis error for asset:', asset.id, error);
+            throw error;
+          }
         }
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
     } catch (error) {
       console.log('[HomeQueue] Refresh failed:', error);
+      // Only show general failure if it wasn't the already-handled API key error
+      if (!error.message || !error.message.includes('No Groq API Key found')) {
+        Alert.alert("Refresh Failed", "A system error occurred while scanning for new screenshots.");
+      }
     } finally {
       setIsRefreshing(false);
       setIsAnalysing(false);
@@ -240,14 +266,28 @@ export default function HomeQueueScreen() {
               {greeting}, {user?.name ? user.name.split(' ')[0] : (isAuthenticated ? 'User' : 'Guest')}
             </Text>
           </View>
-          <Pressable 
-            onPress={() => navigation.navigate(HOME_ROUTES.PROFILE)}
-            style={styles.avatarContainer}
-          >
-            <View style={[styles.avatar, { backgroundColor: palette.primaryLight }]}>
-              <Text style={[styles.avatarText, { color: palette.primary }]}>{initials}</Text>
-            </View>
-          </Pressable>
+          <View style={styles.headerRight}>
+            <Pressable 
+              onPress={handleRefresh}
+              style={[styles.headerActionBtn, { backgroundColor: palette.card, borderColor: palette.border }]}
+              disabled={isRefreshing || isAnalysing}
+            >
+              {isAnalysing ? (
+                <ActivityIndicator size="small" color={palette.primary} />
+              ) : (
+                <Sparkles size={20} color={palette.primary} />
+              )}
+            </Pressable>
+
+            <Pressable 
+              onPress={() => navigation.navigate(HOME_ROUTES.PROFILE)}
+              style={styles.avatarContainer}
+            >
+              <View style={[styles.avatar, { backgroundColor: palette.primaryLight }]}>
+                <Text style={[styles.avatarText, { color: palette.primary }]}>{initials}</Text>
+              </View>
+            </Pressable>
+          </View>
         </View>
       </View>
     );
@@ -366,6 +406,8 @@ const styles = StyleSheet.create({
   avatarContainer: { position: 'relative' },
   avatar: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
   avatarText: { fontSize: 18, fontWeight: '800' },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  headerActionBtn: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
   
   // Banner
   banner: { position: 'absolute', top: 0, left: 0, right: 0, paddingVertical: 12, paddingHorizontal: 20, zIndex: 100 },
