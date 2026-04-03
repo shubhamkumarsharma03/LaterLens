@@ -1,7 +1,7 @@
 # <img src="assets/logo.png" width="40" vertical-align="middle" /> LaterLens — AI-Powered Screenshot Assistant
 
-<div align="center" style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; margin: 20px 0;">
-  <video src="assets/LaterLens_Animated_Logo.mp4" width="100%" style="max-height: 250px; display: block; object-fit: cover;" autoplay loop muted></video>
+<div align="center">
+  <img src="assets/logo.gif" width="100%" alt="LaterLens Animated Logo" style="max-height: 250px; display: block; object-fit: cover; border-radius: 16px;" />
 </div>
 
 > **Your screenshots, actionable.** LaterLens is an AI-powered mobile app that reads your screenshots, understands context with **Groq Cloud (Llama 3.1)** + on-device OCR, and creates a smart feed of tasks, reminders, and actions — all processed securely on your device.
