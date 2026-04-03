@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
 import { ONBOARDING_ROUTES } from '../../navigation/routeNames';
@@ -14,6 +14,7 @@ import { Modal, FlatList } from 'react-native';
 import { getAllUserAlbums, findScreenshotAlbum } from '../../services/mediaDiscovery';
 import { saveScreenshotAlbum, getScreenshotAlbum } from '../../services/settingsStorage';
 import { Check } from 'lucide-react-native';
+import * as Haptics from 'expo-haptics';
 
 export default function PermissionsScreen({ navigation }) {
   const { palette, typography } = useTheme();
@@ -63,7 +64,7 @@ export default function PermissionsScreen({ navigation }) {
     if (permissions.photos) {
       const { status } = await MediaLibrary.requestPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Required Permission', 'Photos access is required for ScreenMind to function.');
+        Alert.alert('Required Permission', 'Photos access is required for LaterLens to function.');
         return;
       }
     }
@@ -93,7 +94,7 @@ export default function PermissionsScreen({ navigation }) {
             Permissions
           </Text>
           <Text style={[styles.subtitle, { color: palette.textSecondary, ...typography.body }]}>
-            Grant access to make ScreenMind work as intended.
+            Grant access to make LaterLens work as intended.
           </Text>
         </View>
 
@@ -130,8 +131,18 @@ export default function PermissionsScreen({ navigation }) {
             <Text style={[styles.folderLabel, { color: palette.textPrimary, ...typography.bodyBold }]}>
               Folder: /{selectedAlbum.title}
             </Text>
-            <TouchableOpacity onPress={() => {
+            <TouchableOpacity onPress={async () => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              const { status } = await MediaLibrary.getPermissionsAsync();
+              if (status !== 'granted') {
+                const requested = await MediaLibrary.requestPermissionsAsync();
+                if (requested.status !== 'granted') {
+                  Alert.alert('Permission Required', 'We need photo access to list your albums.');
+                  return;
+                }
+              }
+              const all = await getAllUserAlbums();
+              setAlbums(all);
               setIsModalVisible(true);
             }}>
               <Text style={[styles.folderLink, { color: palette.primary, ...typography.caption }]}>
@@ -217,12 +228,15 @@ const styles = StyleSheet.create({
   },
   header: {
     marginBottom: 32,
+    alignItems: 'center',
   },
   title: {
     marginBottom: 8,
+    textAlign: 'center',
   },
   subtitle: {
     lineHeight: 22,
+    textAlign: 'center',
   },
   list: {
     marginBottom: 24,

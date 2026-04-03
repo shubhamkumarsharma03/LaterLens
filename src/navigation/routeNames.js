@@ -6,6 +6,7 @@ export const HOME_ROUTES = {
   QUEUE: 'HomeQueue',
   DETAIL: 'ActionDetail',
   PROFILE: 'Profile',
+  ALBUM_PICKER: 'AlbumPicker',
 };
 
 export const COLLECTION_ROUTES = {

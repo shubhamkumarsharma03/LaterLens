@@ -1,34 +1,46 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Animated } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Animated, Image } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
 import { ONBOARDING_ROUTES } from '../../navigation/routeNames';
 import { SPACING, RADIUS } from '../../theme/colors';
 import { CheckCircle2, Zap, Bell, ChevronRight } from 'lucide-react-native';
 import OnboardingCard from '../../components/common/OnboardingCard';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useVideoPlayer, VideoView } from 'expo-video';
 
 export default function WelcomeScreen({ navigation }) {
   const { palette, typography } = useTheme();
 
+  // Setup animated logo player
+  const videoSource = require('../../../assets/LaterLens_Animated_Logo.mp4');
+  const player = useVideoPlayer(videoSource, (player) => {
+    player.loop = true;
+    player.play();
+  });
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: palette.background }]}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Hero Section */}
-        <View style={[styles.hero, { backgroundColor: palette.primaryLight, borderRadius: RADIUS.xl }]}>
-          <Zap size={48} color={palette.primary} strokeWidth={1.5} />
-          <Text style={[styles.heroText, { color: palette.primary, ...typography.caption }]}>
-            Animated Illustration Placeholder
-          </Text>
+        {/* Animated Hero Section */}
+        <View style={[styles.hero, { backgroundColor: palette.primaryLight, borderRadius: RADIUS.xl, overflow: 'hidden' }]}>
+          <VideoView
+            style={styles.video}
+            player={player}
+            allowsFullscreen={false}
+            allowsPictureInPicture={false}
+            contentFit="cover"
+          />
         </View>
 
-        {/* Header Section */}
+        {/* Logo & Header Section */}
         <View style={styles.header}>
-          <Text style={[styles.appName, { color: palette.textPrimary, ...typography.heroTitle }]}>
-            ScreenMind
-          </Text>
-          <Text style={[styles.tagline, { color: palette.textSecondary, ...typography.subtitle }]}>
-            Your screenshots, finally useful. Immediately communicates the value prop in one line.
-          </Text>
+          <Image 
+            source={require('../../../assets/logo.png')} 
+            style={styles.logo}
+            resizeMode="contain"
+          />
+          {/* Tagline is now inside the image per user request, but we can keep it as backup or remove it */}
+          {/* I will remove the text appName and tagline as they are in the image */}
         </View>
 
         {/* Value List */}
@@ -91,23 +103,22 @@ const styles = StyleSheet.create({
     paddingBottom: 100,
   },
   hero: {
-    height: 180,
+    height: 220,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 32,
   },
-  heroText: {
-    marginTop: 12,
-    fontWeight: '700',
+  video: {
+    width: '100%',
+    height: '100%',
   },
   header: {
     marginBottom: 32,
+    alignItems: 'center',
   },
-  appName: {
-    marginBottom: 8,
-  },
-  tagline: {
-    lineHeight: 24,
+  logo: {
+    width: '100%',
+    height: 120, // Adjusted to fit the logo + tagline image
   },
   list: {
     marginBottom: 24,

@@ -1,7 +1,8 @@
 import TextRecognition from '@react-native-ml-kit/text-recognition';
+import { getGroqApiKey } from './settingsStorage';
 
-const GEMINI_ENDPOINT =
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
+const GROQ_MODEL = 'llama-3.1-8b-instant';
 
 const FALLBACK_RESULT = {
   contentType: 'Idea',
@@ -11,6 +12,25 @@ const FALLBACK_RESULT = {
   summary: 'Could not confidently classify the screenshot.',
   extractedUrl: null,
 };
+
+async function getApiKey() {
+  const savedKey = await getGroqApiKey();
+  if (savedKey) return savedKey;
+  return process.env.EXPO_PUBLIC_GROQ_API_KEY;
+}
+
+export async function validateGroqKey(key) {
+  try {
+    const response = await fetch('https://api.groq.com/openai/v1/models', {
+      headers: {
+        'Authorization': `Bearer ${key}`,
+      },
+    });
+    return response.ok;
+  } catch (error) {
+    return false;
+  }
+}
 
 const STRICT_SCHEMA_PROMPT = `You are a contextual screenshot analyzer.
 Return only valid JSON with exactly these keys:
@@ -53,6 +73,8 @@ function parseGeminiJson(rawText) {
   };
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 export async function extractTextFromImage(imageUri) {
   if (!imageUri) {
     throw new Error('Missing image URI for OCR extraction.');
@@ -70,10 +92,10 @@ export async function extractTextFromImage(imageUri) {
 }
 
 export async function analyzeScreenshotContext(extractedText) {
-  const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
+  const apiKey = await getApiKey();
 
   if (!apiKey) {
-    throw new Error('EXPO_PUBLIC_GEMINI_API_KEY is missing.');
+    throw new Error('No Groq API Key found. Please add one in your Profile settings.');
   }
 
   const safeText = (extractedText || '').trim();
@@ -86,54 +108,78 @@ export async function analyzeScreenshotContext(extractedText) {
     };
   }
 
-  const response = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      contents: [
-        {
-          role: 'user',
-          parts: [
+  let attempts = 0;
+  const maxAttempts = 3;
+
+  while (attempts < maxAttempts) {
+    try {
+      // 2-second throttle to stay within Groq free-tier limits (usually 30 RPM)
+      if (attempts === 0) {
+        console.log('[AI] Throttling for 2s (Groq optimization)...');
+        await sleep(2000);
+      }
+
+      const response = await fetch(GROQ_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: GROQ_MODEL,
+          messages: [
             {
-              text: `${STRICT_SCHEMA_PROMPT}\n\nOCR_TEXT:\n${safeText}`,
+              role: 'system',
+              content: STRICT_SCHEMA_PROMPT,
+            },
+            {
+              role: 'user',
+              content: `OCR_TEXT:\n${safeText}`,
             },
           ],
-        },
-      ],
-      generationConfig: {
-        temperature: 0.2,
-        maxOutputTokens: 800,
-        responseMimeType: 'application/json',
-      },
-    }),
-  });
+          response_format: { type: 'json_object' },
+          temperature: 0.2,
+          max_tokens: 800,
+        }),
+      });
 
-  if (!response.ok) {
-    const errorBody = await response.text();
-    console.log('[AI] Gemini request failed:', response.status, errorBody);
-    throw new Error(`Gemini request failed with status ${response.status}.`);
+      if (response.status === 429) {
+        attempts++;
+        const backoff = Math.pow(2, attempts) * 5000;
+        console.log(`[AI] Groq Limit hit (429). Retrying in ${backoff / 1000}s... (Attempt ${attempts}/${maxAttempts})`);
+        await sleep(backoff);
+        continue;
+      }
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        console.log('[AI] Groq request failed:', response.status, errorBody);
+        throw new Error(`Groq request failed with status ${response.status}.`);
+      }
+
+      const payload = await response.json();
+      const modelText = payload?.choices?.[0]?.message?.content || '';
+
+      const parsed = parseGeminiJson(modelText); // Reuse helper to parse JSON
+      console.log('[AI] Parsed screenshot metadata (Groq):', parsed);
+      return parsed;
+
+    } catch (error) {
+      if (attempts >= maxAttempts - 1) throw error;
+      attempts++;
+      console.log(`[AI] Error during analysis. Retrying... (Attempt ${attempts}/${maxAttempts})`, error);
+      await sleep(2000);
+    }
   }
 
-  const payload = await response.json();
-  const modelText = payload?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-
-  try {
-    const parsed = parseGeminiJson(modelText);
-    console.log('[AI] Parsed screenshot metadata:', parsed);
-    return parsed;
-  } catch (parseError) {
-    console.log('[AI] Failed to parse Gemini JSON:', parseError, modelText);
-    throw parseError;
-  }
+  throw new Error('Screenshot analysis failed after multiple attempts.');
 }
 
 export async function queryScreenshotLibrary(userMessage, allQueueItems) {
-  const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
+  const apiKey = await getApiKey();
 
   if (!apiKey) {
-    throw new Error('EXPO_PUBLIC_GEMINI_API_KEY is missing.');
+    throw new Error('No Groq API Key found. Please add one in your Profile settings.');
   }
 
   // Create a minimal context string for the LLM
@@ -155,34 +201,38 @@ ${item.extractedUrl ? `URL: ${item.extractedUrl}` : ''}`
 If the user asks for something specific, you MUST mention the relevant screenshots by their IDs at the end of your response in the format: [IDS: id1, id2, ...].
 
 USER'S SCREENSHOT LIBRARY:
-${contextData}
+${contextData}`;
 
-Answer the user's latest message succinctly. If relevant screenshots exist, always include the IDs tag.`;
-
-  const response = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
+  const response = await fetch(GROQ_ENDPOINT, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      contents: [
+      model: GROQ_MODEL,
+      messages: [
+        {
+          role: 'system',
+          content: systemPrompt,
+        },
         {
           role: 'user',
-          parts: [{ text: `${systemPrompt}\n\nUSER QUESTION: ${userMessage}` }],
+          content: `USER QUESTION: ${userMessage}`,
         },
       ],
-      generationConfig: {
-        temperature: 0.2, // low temperature for factual retrieval
-        maxOutputTokens: 500,
-      },
+      temperature: 0.2, // low temperature for factual retrieval
+      max_tokens: 800,
     }),
   });
 
   if (!response.ok) {
+    const errorBody = await response.text();
+    console.log('[AI] Groq Chat failed:', response.status, errorBody);
     throw new Error('Chat generation failed.');
   }
 
   const payload = await response.json();
-  const text = payload?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  const text = payload?.choices?.[0]?.message?.content || '';
   return text.trim();
 }

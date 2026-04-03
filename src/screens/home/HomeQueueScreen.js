@@ -55,6 +55,12 @@ import { useTheme } from '../../theme/useTheme';
 import { TYPOGRAPHY, SPACING, RADIUS } from '../../theme/colors';
 import { User as UserIcon } from 'lucide-react-native';
 import { findScreenshotAlbum } from '../../services/mediaDiscovery';
+import {
+  getInitialScanStatus,
+  setInitialScanStatus,
+  getLastScannedTimestamp,
+  setLastScannedTimestamp,
+} from '../../services/settingsStorage';
 
 // ─── Helpers ─────────────────────────────────────────────────
 
@@ -340,7 +346,15 @@ export default function HomeQueueScreen() {
           setProcessingMessage(`Processing ${i + 1}/${newAssets.length} screenshots…`);
         }
         await processScreenshotWithAI(asset);
+        
+        // After each successful processing, update the last scanned timestamp
+        const timestamp = asset.creationTime || Date.now();
+        await setLastScannedTimestamp(timestamp);
       }
+      
+      // Mark initial scan as completed
+      await setInitialScanStatus(true);
+
     } catch (error) {
       console.log('[Media] Failed to initialize media flow:', error);
       setHasPermission(false);
@@ -461,15 +475,37 @@ export default function HomeQueueScreen() {
         return [];
       }
 
+      const isInitialScanDone = await getInitialScanStatus();
+      const lastTimestamp = await getLastScannedTimestamp();
+
+      // Calculate start of today (00:00:00)
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const startOfToday = today.getTime();
+
+      // Today filter logic
+      let createdAfter = lastTimestamp;
+      if (!isInitialScanDone) {
+        createdAfter = startOfToday;
+        console.log('[Media] Initial scan for this folder. Starting from today.');
+      }
+
       const assetsPage = await MediaLibrary.getAssetsAsync({
         first: limit + 10, // Fetch a bit more to handle potential filters
         album: screenshotAlbum,
         mediaType: [MediaLibrary.MediaType.photo],
         sortBy: [[MediaLibrary.SortBy.creationTime, false]], // Sort newest first directly
+        createdAfter: createdAfter,
       });
 
       if (!assetsPage.assets.length) {
-        console.log('[Media] Screenshot album found but it is empty:', screenshotAlbum.title);
+        console.log('[Media] No new screenshots found.', isInitialScanDone ? '' : '(Initial scan filter active)');
+        
+        // Even if empty, if it's the first run, we've "completed" the check
+        if (!isInitialScanDone) {
+          await setInitialScanStatus(true);
+        }
+        
         return [];
       }
 

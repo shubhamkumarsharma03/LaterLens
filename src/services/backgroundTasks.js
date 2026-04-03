@@ -6,6 +6,12 @@ import { Platform } from 'react-native';
 import { getActionQueue, saveActionItem } from './actionQueueStorage';
 import { extractTextFromImage, analyzeScreenshotContext } from './aiProcessingEngine';
 import { findScreenshotAlbum } from './mediaDiscovery';
+import {
+  getInitialScanStatus,
+  setInitialScanStatus,
+  getLastScannedTimestamp,
+  setLastScannedTimestamp,
+} from './settingsStorage';
 
 const BACKGROUND_SCREENSHOT_TASK = 'BACKGROUND_SCREENSHOT_TASK';
 
@@ -24,13 +30,30 @@ async function getRecentScreenshotAssets(limit = 5) {
 
     if (!screenshotAlbum) return [];
 
+    const isInitialScanDone = await getInitialScanStatus();
+    const lastTimestamp = await getLastScannedTimestamp();
+
+    // Calculate start of today (00:00:00)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const startOfToday = today.getTime();
+
+    // If it's the first time for this folder/install, only scan from today.
+    // Otherwise, scan from the last recorded timestamp to ensure no gaps.
+    let createdAfter = lastTimestamp;
+    if (!isInitialScanDone) {
+      createdAfter = startOfToday;
+      console.log('[BackgroundTask] First scan for this folder. Limiting to today.');
+    }
+
     let assetsPage;
     try {
       assetsPage = await MediaLibrary.getAssetsAsync({
-        first: limit + 5,
+        first: limit + 10,
         album: screenshotAlbum,
         mediaType: [MediaLibrary.MediaType.photo],
         sortBy: [[MediaLibrary.SortBy.creationTime, false]],
+        createdAfter: createdAfter,
       });
     } catch (e) {
       return [];
@@ -85,9 +108,14 @@ TaskManager.defineTask(BACKGROUND_SCREENSHOT_TASK, async () => {
 
     console.log(`[BackgroundTask] Found ${newAssets.length} new screenshots...`);
 
+    let newestTimestamp = 0;
+
     for (const asset of newAssets) {
       const uri = asset.uri;
       const assetId = asset.id;
+      const timestamp = asset.creationTime || Date.now();
+      
+      if (timestamp > newestTimestamp) newestTimestamp = timestamp;
 
       const extractedText = await extractTextFromImage(uri);
       const metadata = await analyzeScreenshotContext(extractedText);
@@ -115,6 +143,17 @@ TaskManager.defineTask(BACKGROUND_SCREENSHOT_TASK, async () => {
         },
         trigger: null,
       });
+    }
+
+    // Update scan state
+    if (newAssets.length > 0) {
+      await setInitialScanStatus(true);
+      if (newestTimestamp > 0) {
+        await setLastScannedTimestamp(newestTimestamp);
+      }
+    } else if (newAssets.length === 0 && assets.length > 0) {
+        // Even if all are filtered out, we've completed the "initial scan" check for those items
+        await setInitialScanStatus(true);
     }
 
     return BackgroundFetch.BackgroundFetchResult.NewData;

@@ -1,37 +1,69 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Switch } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Switch, Platform } from 'react-native';
 import { useTheme } from '../../theme/useTheme';
-import { ONBOARDING_ROUTES, ROOT_STACK } from '../../navigation/routeNames';
+import { ONBOARDING_ROUTES } from '../../navigation/routeNames';
 import { RADIUS, SPACING } from '../../theme/colors';
 import PersonaChip from '../../components/common/PersonaChip';
 import OnboardingCard from '../../components/common/OnboardingCard';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Info, Sparkles, Brain, Clock, ChevronRight } from 'lucide-react-native';
+import { Brain, Clock, Sparkles, ChevronRight } from 'lucide-react-native';
+import * as Haptics from 'expo-haptics';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import { useOnboarding } from '../../state/OnboardingContext';
 
 const PERSONAS = ['Student', 'Shopper', 'Builder', 'Creator', 'Traveller', 'Researcher'];
 const TIMES = ['Morning (8am)', 'Afternoon (1pm)', 'Evening (9pm)', 'Custom'];
 
-export default function PreferencesScreen({ navigation }) {
+export default function PreferencesScreen() {
   const { palette, typography } = useTheme();
+  const { completeOnboarding } = useOnboarding();
+  
   const [digestTime, setDigestTime] = useState('Evening (9pm)');
+  const [customTime, setCustomTime] = useState(new Date());
+  const [showTimePicker, setShowTimePicker] = useState(false);
   const [aiMode, setAiMode] = useState('On-device');
   const [selectedPersonas, setSelectedPersonas] = useState(['Researcher']);
 
   const togglePersona = (persona) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setSelectedPersonas(prev =>
-      prev.includes(persona) ? prev.filter(p => p !== persona) : [...prev, persona]
+      prev.includes(persona) 
+        ? prev.filter(p => p !== persona) 
+        : [...prev, persona]
     );
   };
 
-  const handleFinish = async () => {
-    try {
-      await AsyncStorage.setItem('hasCompletedOnboarding', 'true');
-      // Root stack will switch automatically on navigation to MainTabs
-      navigation.replace(ROOT_STACK.MAIN_TABS);
-    } catch (e) {
-      console.error(e);
+  const handleTimePress = (time) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (time === 'Custom') {
+      setShowTimePicker(true);
+    } else {
+      setDigestTime(time);
     }
+  };
+
+  const onTimeChange = (event, selectedDate) => {
+    const currentDate = selectedDate || customTime;
+    setShowTimePicker(Platform.OS === 'ios');
+    if (selectedDate) {
+      setCustomTime(currentDate);
+      const hours = currentDate.getHours();
+      const minutes = currentDate.getMinutes();
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      const hours12 = hours % 12 || 12;
+      const formattedTime = `${hours12}:${minutes < 10 ? '0' + minutes : minutes} ${ampm}`;
+      setDigestTime(`Custom (${formattedTime})`);
+    }
+  };
+
+  const handleFinish = async () => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    await completeOnboarding({
+      digestTime,
+      aiMode,
+      personas: selectedPersonas,
+      customTimeValue: customTime.getTime()
+    });
   };
 
   return (
@@ -61,29 +93,44 @@ export default function PreferencesScreen({ navigation }) {
                 style={[
                   styles.timeOption,
                   {
-                    backgroundColor: digestTime === time ? palette.primary : palette.card,
-                    borderColor: digestTime === time ? palette.primary : palette.border,
+                    backgroundColor: digestTime.startsWith(time) || (time === 'Custom' && digestTime.startsWith('Custom')) 
+                      ? palette.primary 
+                      : palette.card,
+                    borderColor: digestTime.startsWith(time) || (time === 'Custom' && digestTime.startsWith('Custom'))
+                      ? palette.primary 
+                      : palette.border,
                   },
-                  digestTime !== time && palette.shadow,
                 ]}
-                onPress={() => setDigestTime(time)}
+                onPress={() => handleTimePress(time)}
               >
                 <Text
                   style={[
                     styles.timeLabel,
                     {
-                      color: digestTime === time ? '#fff' : palette.textPrimary,
+                      color: digestTime.startsWith(time) || (time === 'Custom' && digestTime.startsWith('Custom')) 
+                        ? '#fff' 
+                        : palette.textPrimary,
                       ...typography.caption,
                       fontWeight: '700',
                     },
                   ]}
                 >
-                  {time}
+                  {time === 'Custom' && digestTime.startsWith('Custom') ? digestTime : time}
                 </Text>
               </TouchableOpacity>
             ))}
           </View>
         </View>
+
+        {showTimePicker && (
+          <DateTimePicker
+            value={customTime}
+            mode="time"
+            is24Hour={false}
+            display="default"
+            onChange={onTimeChange}
+          />
+        )}
 
         {/* AI Mode Selector */}
         <View style={styles.section}>
@@ -108,7 +155,10 @@ export default function PreferencesScreen({ navigation }) {
               <Switch
                 trackColor={{ false: palette.border, true: palette.primary }}
                 thumbColor="#fff"
-                onValueChange={() => setAiMode(prev => prev === 'On-device' ? 'Cloud' : 'On-device')}
+                onValueChange={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setAiMode(prev => prev === 'On-device' ? 'Cloud' : 'On-device');
+                }}
                 value={aiMode !== 'On-device'}
               />
             </View>
@@ -133,7 +183,7 @@ export default function PreferencesScreen({ navigation }) {
               />
             ))}
           </View>
-          <Text style={[styles.optionalText, { color: palette.textSecondary, ...typography.tiny }]}>
+          <Text style={[styles.optionalText, { color: palette.textSecondary, ...typography.tiny, textAlign: 'center' }]}>
             Optional. Tunes the AI's initial intent model. Multi-select.
           </Text>
         </View>
@@ -165,12 +215,15 @@ const styles = StyleSheet.create({
   },
   header: {
     marginBottom: 32,
+    alignItems: 'center',
   },
   title: {
     marginBottom: 8,
+    textAlign: 'center',
   },
   subtitle: {
     lineHeight: 22,
+    textAlign: 'center',
   },
   section: {
     marginBottom: 32,
@@ -179,6 +232,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 16,
+    justifyContent: 'center',
   },
   sectionIcon: {
     marginRight: 10,
@@ -223,9 +277,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     marginBottom: 12,
+    justifyContent: 'center',
   },
   optionalText: {
     paddingHorizontal: 4,
+    marginTop: 8,
   },
   footer: {
     position: 'absolute',
@@ -240,6 +296,11 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
+    shadowColor: '#6366F1',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 15,
+    elevation: 8,
   },
   buttonText: {
     fontSize: 16,

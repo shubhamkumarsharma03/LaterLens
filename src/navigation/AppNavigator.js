@@ -15,6 +15,7 @@ import { Home, FolderOpen, Sparkles, BarChart3 } from 'lucide-react-native';
 import HomeQueueScreen from '../screens/home/HomeQueueScreen';
 import ActionDetailScreen from '../screens/home/ActionDetailScreen';
 import ProfileScreen from '../screens/common/ProfileScreen';
+import AlbumPickerScreen from '../screens/common/AlbumPickerScreen';
 import CollectionsScreen from '../screens/collections/CollectionsScreen';
 import CollectionSearchScreen from '../screens/collections/CollectionSearchScreen';
 import CollectionCategoryScreen from '../screens/collections/CollectionCategoryScreen';
@@ -37,6 +38,8 @@ import { RADIUS } from '../theme/colors';
 import OnboardingNavigator from './OnboardingNavigator';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useState, useEffect } from 'react';
+import { OnboardingProvider, useOnboarding } from '../state/OnboardingContext';
+import { ActivityIndicator, View } from 'react-native';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -74,6 +77,11 @@ function HomeStackNavigator() {
         name={HOME_ROUTES.PROFILE}
         component={ProfileScreen}
         options={{ title: 'Profile' }}
+      />
+      <HomeStack.Screen
+        name={HOME_ROUTES.ALBUM_PICKER}
+        component={AlbumPickerScreen}
+        options={{ title: 'Select Folder' }}
       />
     </HomeStack.Navigator>
   );
@@ -237,37 +245,33 @@ function MainTabNavigator() {
   );
 }
 
-export default function AppNavigator() {
-  const [isLoading, setIsLoading] = useState(true);
-  const [showOnboarding, setShowOnboarding] = useState(true);
+function AppNavigatorContent() {
+  const { hasCompletedOnboarding, isLoading, palette } = useOnboarding();
 
-  useEffect(() => {
-    checkOnboarding();
-  }, []);
-
-  const checkOnboarding = async () => {
-    try {
-      const value = await AsyncStorage.getItem('hasCompletedOnboarding');
-      if (value === 'true') {
-        setShowOnboarding(false);
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  if (isLoading) return null; // Or a splash screen
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: palette?.background || '#fff' }}>
+        <ActivityIndicator size="large" color="#6366F1" />
+      </View>
+    );
+  }
 
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
-      {showOnboarding ? (
-        <Stack.Screen name="Onboarding" component={OnboardingNavigator} />
-      ) : (
+      {hasCompletedOnboarding ? (
         <Stack.Screen name={ROOT_STACK.MAIN_TABS} component={MainTabNavigator} />
+      ) : (
+        <Stack.Screen name="Onboarding" component={OnboardingNavigator} />
       )}
     </Stack.Navigator>
+  );
+}
+
+export default function AppNavigator() {
+  return (
+    <OnboardingProvider>
+      <AppNavigatorContent />
+    </OnboardingProvider>
   );
 }
 
