@@ -11,6 +11,8 @@
   <img src="https://img.shields.io/badge/Expo_SDK-54-000020?style=for-the-badge&logo=expo&logoColor=white" alt="Expo" />
   <img src="https://img.shields.io/badge/Groq_Cloud-Llama_3.1-f3d122?style=for-the-badge&logo=groq&logoColor=black" alt="Groq" />
   <img src="https://img.shields.io/badge/Platform-iOS_%7C_Android-lightgrey?style=for-the-badge" alt="Platform" />
+  <a href="docs/ARCHITECTURE.md"><img src="https://img.shields.io/badge/Docs-Architecture-6366F1?style=for-the-badge&logo=googledocs&logoColor=white" alt="Architecture" /></a>
+
 </p>
 
 ---
@@ -31,7 +33,7 @@
 
 ---
 
-## 🎨 Design System
+## Design System
 
 ### Light Theme
 | Element | Colour |
@@ -62,7 +64,7 @@ Each AI category gets a unique semantic colour for instant visual recognition:
 
 ---
 
-## 🏗️ Project Structure
+## Project Structure
 
 ```
 LaterLens/
@@ -105,7 +107,7 @@ LaterLens/
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 LaterLens follows a **Privacy-First** architecture where heavy processing (OCR) happens entirely on-device. Only anonymised text is sent over the cloud for AI analysis.
 
@@ -215,7 +217,7 @@ npx expo run:ios
 
 ---
 
-## ⚙️ Tech Stack
+## Tech Stack
 
 | Layer | Technology |
 |---|---|
