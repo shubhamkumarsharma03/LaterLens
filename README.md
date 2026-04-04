@@ -105,6 +105,31 @@ LaterLens/
 
 ---
 
+## 🏗️ Architecture
+
+LaterLens follows a **Privacy-First** architecture where heavy processing (OCR) happens entirely on-device. Only anonymised text is sent over the cloud for AI analysis.
+
+```mermaid
+graph LR
+    A[📸 Screenshot] --> B[🔍 On-Device OCR]
+    B --> C[🧠 Groq AI Cloud]
+    C --> D[⚡ Smart Action]
+    
+    subgraph Local[On-Device]
+    A
+    B
+    D
+    end
+    
+    subgraph Cloud[Groq Cloud]
+    C
+    end
+```
+
+For a deep dive into our system design, data flows, and component relationships, please see our **[Architecture Documentation](docs/ARCHITECTURE.md)**.
+
+---
+
 ## 🚀 Getting Started
 
 ### Prerequisites
