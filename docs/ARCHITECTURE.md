@@ -1,10 +1,10 @@
-# 🏗️ Architecture & Technical Documentation
+# Architecture & Technical Documentation
 
 This document provides a deep dive into the internal design, data flow, and processing pipeline of **LaterLens**.
 
 ---
 
-## 🚦 User Flow
+## User Flow
 Visualises the user journey from app launch through onboarding and daily interaction.
 
 ```mermaid
@@ -43,7 +43,7 @@ flowchart TD
 
 ---
 
-## 🏛️ System Architecture
+## System Architecture
 The high-level interaction between local device capabilities and external AI processing.
 
 ```mermaid
@@ -76,7 +76,7 @@ flowchart TB
 
 ---
 
-## 🧬 Processing Sequence
+## Processing Sequence
 The lifecycle of a single screenshot analysis request.
 
 ```mermaid
@@ -105,7 +105,7 @@ sequenceDiagram
 
 ---
 
-## 📊 Data Models (ERD)
+## Data Models (ERD)
 Logic schema for how data is structured within local storage.
 
 ```mermaid
@@ -165,7 +165,7 @@ erDiagram
 
 ---
 
-## 🔄 Screenshot State Lifecycle
+## Screenshot State Lifecycle
 Transitions of an action item from capture to final archive/deletion.
 
 ```mermaid
@@ -196,7 +196,7 @@ stateDiagram-v2
 
 ---
 
-## 🧩 Internal Component Map
+## Internal Component Map
 Module structure and internal dependency flow.
 
 ```mermaid
@@ -258,7 +258,7 @@ flowchart TB
 
 ---
 
-## 🌍 Edge & Cloud Deployment
+## Edge & Cloud Deployment
 Distribution through app stores and cloud-hosted AI inference.
 
 ```mermaid
@@ -299,7 +299,7 @@ flowchart TB
 
 ---
 
-## 🔒 Privacy & Data Boundary (Additional)
+## Privacy & Data Boundary (Additional)
 Visualises the "Privacy-First" approach by showing exactly what leaves the device.
 
 ```mermaid
