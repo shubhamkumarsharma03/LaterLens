@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import {
   ScrollView,
   StyleSheet,
@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Haptics from 'expo-haptics';
 import { useTheme } from '../../theme/useTheme';
 import { SPACING, RADIUS, TYPOGRAPHY } from '../../theme/colors';
 import { COLLECTION_ROUTES } from '../../navigation/routeNames';
@@ -19,7 +20,7 @@ import { useQueue } from '../../state/QueueContext';
 import { getCategoryIcon, UI_ICONS } from '../../utils/categoryIcons';
 import { SMART_COLLECTIONS } from '../../services/mockData';
 import EmptyState from '../../components/shared/EmptyState';
-import { Search, ChevronDown, LayoutGrid, List, Clock, Sparkles, BookOpen } from 'lucide-react-native';
+import { Search, ChevronDown, LayoutGrid, List, Clock, Sparkles, BookOpen, AlertTriangle, ShieldOff, X } from 'lucide-react-native';
 
 /**
  * CollectionsScreen — Overhauled visual library (Light Theme)
@@ -28,7 +29,7 @@ export default function CollectionsScreen() {
   const { palette } = useTheme();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const { collectionItems } = useQueue();
+  const { collectionItems, archiveQueueItem, updateQueueItem } = useQueue();
   const [query, setQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('All');
   const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'list'
@@ -107,6 +108,64 @@ export default function CollectionsScreen() {
     // Already sorted by newest in QueueContext
     return collectionItems.slice(0, 6);
   }, [collectionItems]);
+
+  // Items that need manual review (OCR failed, OCR error, or privacy blocked)
+  const needsReviewItems = useMemo(() => {
+    return collectionItems.filter(item =>
+      item.status === 'ocr_failed' ||
+      item.status === 'ocr_error' ||
+      item.requiresManualReview === true ||
+      item.status === 'privacy_blocked'
+    );
+  }, [collectionItems]);
+
+  // Dismiss a review item — archives it permanently so it stops cluttering the list
+  const handleDismissReviewItem = useCallback((itemId) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Alert.alert(
+      'Dismiss this item?',
+      'It will be archived and removed from your review list. Your original screenshot is not affected.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Dismiss',
+          onPress: async () => {
+            await archiveQueueItem(itemId);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          },
+        },
+      ]
+    );
+  }, [archiveQueueItem]);
+
+  // Prompt user to add a manual note for an OCR-failed item
+  const handleAddNote = useCallback((item) => {
+    Alert.prompt(
+      'Add a note',
+      "We couldn't read this screenshot. Describe what it contains:",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Save',
+          onPress: async (note) => {
+            if (note && note.trim()) {
+              await updateQueueItem(item.id, {
+                summary: note.trim(),
+                status: 'queued',
+                requiresManualReview: false,
+                contentType: 'Idea',
+                tags: ['manual-note', ...(item.tags || [])],
+              });
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            }
+          },
+        },
+      ],
+      'plain-text',
+      '',
+      'default'
+    );
+  }, [updateQueueItem]);
 
   // Headers & Subtitles
   const renderHeader = () => (
@@ -306,6 +365,68 @@ export default function CollectionsScreen() {
               columnWrapperStyle={viewMode === 'grid' ? styles.columnWrapper : null}
             />
           </View>
+
+          {/* Needs Review Section */}
+          {needsReviewItems.length > 0 && (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <AlertTriangle size={16} color={palette.urgencyRed || '#DC2626'} />
+                <Text style={[styles.sectionTitle, { color: palette.textPrimary }]}>Needs review</Text>
+                <View style={[styles.reviewCountBadge, { backgroundColor: palette.urgencyRed || '#DC2626' }]}>
+                  <Text style={styles.reviewCountText}>{needsReviewItems.length}</Text>
+                </View>
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.recentScroll}>
+                {needsReviewItems.slice(0, 8).map((item) => (
+                  <View
+                    key={item.id}
+                    style={[styles.reviewCard, { backgroundColor: palette.card, borderColor: palette.border }]}
+                  >
+                    {/* Dismiss button — archives the item permanently */}
+                    <Pressable
+                      style={styles.reviewDismissBtn}
+                      onPress={() => handleDismissReviewItem(item.id)}
+                      hitSlop={8}
+                    >
+                      <X size={14} color={palette.textSecondary} />
+                    </Pressable>
+
+                    <Pressable
+                      style={styles.reviewCardTappable}
+                      onPress={() => {
+                        if (item.status === 'ocr_failed' || item.status === 'ocr_error') {
+                          handleAddNote(item);
+                        } else {
+                          navigation.navigate(COLLECTION_ROUTES.CATEGORY, {
+                            contentType: item.contentType || 'Uncategorized',
+                            initialItemId: item.id,
+                          });
+                        }
+                      }}
+                    >
+                      <View style={styles.reviewCardInner}>
+                        {item.status === 'privacy_blocked'
+                          ? <ShieldOff size={20} color={palette.primary} strokeWidth={1.8} />
+                          : <AlertTriangle size={20} color={palette.urgencyRed || '#DC2626'} strokeWidth={1.8} />
+                        }
+                        <Text style={[styles.reviewLabel, { color: palette.textPrimary }]} numberOfLines={2}>
+                          {(item.status === 'ocr_failed' || item.status === 'ocr_error')
+                            ? "Couldn't read this \u2014 tap to add a note"
+                            : item.sensitivitySummary || 'Saved privately'
+                          }
+                        </Text>
+                      </View>
+                      <SmartThumbnail
+                        uri={item.imageUri || item.thumbnail}
+                        contentType={item.contentType}
+                        style={styles.reviewThumb}
+                      />
+                    </Pressable>
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+          )}
 
           {/* Smart Collections */}
           {smartCollections.length > 0 && (
@@ -612,5 +733,60 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 13,
     fontWeight: '800',
+  },
+  // Needs Review styles
+  reviewCountBadge: {
+    marginLeft: 8,
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+  },
+  reviewCountText: {
+    color: '#FFF',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  reviewCard: {
+    width: 200,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    marginRight: 12,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  reviewDismissBtn: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    zIndex: 10,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reviewCardTappable: {
+    flex: 1,
+  },
+  reviewCardInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    paddingRight: 32,
+    gap: 8,
+  },
+  reviewLabel: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 16,
+  },
+  reviewThumb: {
+    width: '100%',
+    height: 80,
   },
 });

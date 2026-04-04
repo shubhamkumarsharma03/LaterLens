@@ -23,6 +23,9 @@ const KEYS = {
   
   // Data & Storage
   AUTO_ARCHIVE_DAYS: 'laterlens_auto_archive_days',
+  
+  // Privacy
+  PRIVACY_RULES: 'laterlens_privacy_rules',
 };
 
 /**

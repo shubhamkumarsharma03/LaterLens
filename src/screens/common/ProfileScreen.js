@@ -28,7 +28,7 @@ import { validateGroqKey } from '../../services/aiProcessingEngine';
 
 import SettingCard from '../../components/settings/SettingCard';
 import StorageUsageBar from '../../components/settings/StorageUsageBar';
-import { calculateStorageStats, exportMetadata, bulkImportScreenshots, wipeAllAppData } from '../../services/dataManagementService';
+import { calculateStorageStats, exportMetadata, bulkImportScreenshots, wipeAllAppData, getLastBulkImportSummary } from '../../services/dataManagementService';
 import { scheduleDailyDigest, sendNotification } from '../../services/notificationService';
 
 export default function ProfileScreen() {
@@ -87,8 +87,14 @@ export default function ProfileScreen() {
     setIsProcessing(true);
     try {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      const count = await bulkImportScreenshots(1);
-      Alert.alert('Success', `Imported and analyzed ${count} screenshots.`);
+      const summary = await bulkImportScreenshots(1);
+      const lines = [
+        `Total scanned: ${summary.total}`,
+        `✅ Analysed: ${summary.successful}`,
+      ];
+      if (summary.privacyBlocked > 0) lines.push(`🔒 Privacy blocked: ${summary.privacyBlocked}`);
+      if (summary.ocrFailed > 0) lines.push(`⚠️ Needs review: ${summary.ocrFailed}`);
+      Alert.alert('Import Complete', lines.join('\n'));
       loadStats();
     } catch (e) {
       Alert.alert('Error', 'Failed to perform bulk import.');

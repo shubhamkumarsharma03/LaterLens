@@ -5,7 +5,7 @@ import * as MediaLibrary from 'expo-media-library';
 import * as Network from 'expo-network';
 import { Platform } from 'react-native';
 import { getActionQueue, saveActionItem } from './actionQueueStorage';
-import { extractTextFromImage, analyzeScreenshotContext } from './aiProcessingEngine';
+import { processScreenshot } from './aiProcessingEngine';
 import { findScreenshotAlbum } from './mediaDiscovery';
 import {
   getInitialScanStatus,
@@ -134,7 +134,16 @@ TaskManager.defineTask(BACKGROUND_SCREENSHOT_TASK, async () => {
     console.log(`[BackgroundTask] Found ${newAssets.length} new screenshots...`);
 
     let newestTimestamp = 0;
-    const aiMode = await getSetting(SETTINGS_KEYS.AI_MODE, 'cloud');
+    
+    // Fetch privacy settings for the gate
+    const privacyRules = await getSetting(SETTINGS_KEYS.PRIVACY_RULES, {
+      blockFinancial: true,
+      blockAuth: true,
+      blockPersonalId: true,
+      blockContacts: true,
+      blockMedical: true,
+      blockChats: true,
+    });
 
     for (const asset of newAssets) {
       const uri = asset.uri;
@@ -143,25 +152,40 @@ TaskManager.defineTask(BACKGROUND_SCREENSHOT_TASK, async () => {
       
       if (timestamp > newestTimestamp) newestTimestamp = timestamp;
 
-      let metadata;
-      const extractedText = await extractTextFromImage(uri);
-      metadata = await analyzeScreenshotContext(extractedText);
-      
-      const queueItem = {
-        id: `${Date.now()}-${assetId}`,
-        assetId,
-        imageUri: uri,
-        timestamp: asset.creationTime || Date.now(),
-        ...metadata,
-        status: 'queued',
-      };
+      // Single Pipeline Call: OCR -> Privacy -> Groq
+      const result = await processScreenshot(uri, { privacyRules });
 
-      await saveActionItem(queueItem);
+      if (result.status === 'success') {
+        const queueItem = {
+          id: `${Date.now()}-${assetId}`,
+          assetId,
+          imageUri: uri,
+          timestamp: asset.creationTime || Date.now(),
+          ...result,
+          status: 'queued',
+        };
 
-      await sendNotification(
-        'LaterLens: Action Saved',
-        `Analyzed a ${metadata.contentType} screenshot: ${metadata.suggestedAction}`
-      );
+        await saveActionItem(queueItem);
+
+        await sendNotification(
+          'LaterLens: Action Saved',
+          `Analyzed a ${result.contentType} screenshot: ${result.suggestedAction}`
+        );
+      } else if (result.status === 'privacy_blocked') {
+        // Item already saved locally by processScreenshot.
+        // IMPORTANT: Do NOT reveal what was detected in the notification.
+        // Lock screen notifications are visible to anyone who picks up the phone.
+        // "contains card number" is metadata leakage.
+        await sendNotification(
+          'Screenshot saved privately',
+          'This item was kept on your device only.'
+        );
+      } else if (result.status === 'ocr_failed' || result.status === 'ocr_error') {
+        // Item already saved locally by processScreenshot.
+        // No notification — the user doesn't need to know about OCR failures
+        // on their lock screen. They can see 'Needs review' items inside the app.
+        console.log(`[BackgroundTask] ${result.status} for asset:`, assetId);
+      }
     }
 
     // Update scan state
