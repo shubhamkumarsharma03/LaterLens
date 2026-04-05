@@ -14,6 +14,7 @@ export const COLLECTION_ROUTES = {
   SEARCH: 'CollectionSearch',
   CATEGORY: 'CollectionCategory',
   THREAD: 'CollectionThread',
+  STUDY_QUEUE: 'StudyQueue',
 };
 
 export const ASK_AI_ROUTES = {

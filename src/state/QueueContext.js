@@ -9,6 +9,7 @@ import { initialQueueState, QUEUE_ACTIONS, queueReducer } from './queueReducer';
 const QueueContext = createContext(null);
 
 const STATUS = {
+  PENDING: 'pending',
   QUEUED: 'queued',
   SNOOZED: 'snoozed',
   COMPLETED: 'completed',
@@ -38,16 +39,20 @@ export function QueueProvider({ children }) {
   const [state, dispatch] = useReducer(queueReducer, initialQueueState);
 
   const persistQueue = useCallback(async (nextItems) => {
+    const previousItems = state.items;
+    const normalized = sortNewest((nextItems || []).map(normalizeItem).filter(Boolean));
+    dispatch({ type: QUEUE_ACTIONS.SET_ITEMS, payload: normalized });
+
     try {
-      const normalized = sortNewest((nextItems || []).map(normalizeItem).filter(Boolean));
       await replaceActionQueue(normalized);
-      dispatch({ type: QUEUE_ACTIONS.SET_ITEMS, payload: normalized });
-      return normalized;
     } catch (e) {
       console.error('[QueueContext] Persist failed:', e);
-      return nextItems;
+      dispatch({ type: QUEUE_ACTIONS.SET_ITEMS, payload: previousItems });
+      throw e;
     }
-  }, []);
+
+    return normalized;
+  }, [state.items]);
 
   const hydrateQueue = useCallback(async () => {
     try {
@@ -190,7 +195,15 @@ export function QueueProvider({ children }) {
   );
 
   const queueItems = useMemo(
-    () => sortNewest(state.items.filter((item) => item.status === STATUS.QUEUED)),
+    () =>
+      sortNewest(
+        state.items.filter(
+          (item) =>
+            item.status === STATUS.PENDING ||
+            item.status === STATUS.QUEUED ||
+            item.status === STATUS.SNOOZED
+        )
+      ),
     [state.items]
   );
 

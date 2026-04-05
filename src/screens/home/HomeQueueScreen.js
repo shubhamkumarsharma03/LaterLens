@@ -55,6 +55,7 @@ import ActionCard from '../../components/ActionCard';
 import { HOME_ROUTES } from '../../navigation/routeNames';
 
 const { width } = Dimensions.get('window');
+const DEFAULT_SNOOZE_MINUTES = 60 * 24;
 
 // Date Grouping Helper
 const groupItems = (items) => {
@@ -118,7 +119,15 @@ export default function HomeQueueScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation();
   const { user, isAuthenticated } = useAuth();
-  const { allItems, queueItems, hydrateQueue, addQueueItem, archiveQueueItem } = useQueue();
+  const {
+    allItems,
+    queueItems,
+    hydrateQueue,
+    addQueueItem,
+    completeQueueItem,
+    archiveQueueItem,
+    snoozeQueueItem,
+  } = useQueue();
 
   // Local State
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -239,6 +248,27 @@ export default function HomeQueueScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
+  const handleComplete = useCallback(async (item) => {
+    try {
+      await completeQueueItem(item.id);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (error) {
+      console.error('[HomeQueue] Failed to complete item:', error);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert('Action Failed', 'Unable to mark this item as completed. Please try again.');
+    }
+  }, [completeQueueItem]);
+
+  const handleSnooze = useCallback(async (item) => {
+    try {
+      await snoozeQueueItem(item.id, DEFAULT_SNOOZE_MINUTES);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch (error) {
+      console.error('[HomeQueue] Failed to snooze item:', error);
+      Alert.alert('Action Failed', 'Unable to snooze this item right now. Please try again.');
+    }
+  }, [snoozeQueueItem]);
+
   const handleUndo = async () => {
     if (lastAction) {
       await addQueueItem(lastAction.item);
@@ -248,7 +278,18 @@ export default function HomeQueueScreen() {
     }
   };
 
-  const grouped = useMemo(() => groupItems(queueItems || []), [queueItems]);
+  const visibleQueueItems = useMemo(
+    () =>
+      (queueItems || []).filter(
+        (item) =>
+          item.status === 'pending' ||
+          item.status === 'queued' ||
+          item.status === 'snoozed'
+      ),
+    [queueItems]
+  );
+
+  const grouped = useMemo(() => groupItems(visibleQueueItems), [visibleQueueItems]);
   const streak = useMemo(() => calculateStreak(allItems || []), [allItems]);
 
   const renderHeader = () => {
@@ -349,7 +390,8 @@ export default function HomeQueueScreen() {
 
       <FlatList
         data={flatListData}
-        keyExtractor={(item, index) => item.id || `section-${index}`}
+        keyExtractor={(item, index) => (item.id != null ? item.id.toString() : `section-${index}`)}
+        extraData={visibleQueueItems}
         renderItem={({ item }) => {
           if (item.type === 'header') return renderSectionHeader(item.title);
           if (item.type === 'fold') {
@@ -371,8 +413,8 @@ export default function HomeQueueScreen() {
                onCardPress={() => navigation.navigate(HOME_ROUTES.DETAIL, { itemId: item.id })}
                onPrimaryPress={() => navigation.navigate(HOME_ROUTES.DETAIL, { itemId: item.id })}
                onArchive={() => handleArchive(item)}
-               onSnooze={() => {}}
-               onComplete={() => {}}
+               onSnooze={() => handleSnooze(item)}
+               onComplete={() => handleComplete(item)}
              />
           );
         }}

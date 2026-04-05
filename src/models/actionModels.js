@@ -1,3 +1,5 @@
+import { STORAGE_KEYS as GLOBAL_STORAGE_KEYS } from '../constants/storageKeys';
+
 export const CONTENT_TYPES = [
   'Product',
   'Study material',
@@ -17,5 +19,5 @@ export const ACTION_STATUSES = {
 };
 
 export const STORAGE_KEYS = {
-  ACTION_QUEUE: 'screenmind_action_queue_v1',
+  ACTION_QUEUE: GLOBAL_STORAGE_KEYS.ACTION_ITEMS,
 };

@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import {
   ScrollView,
   StyleSheet,
@@ -10,6 +10,7 @@ import {
   Image,
   Alert,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
@@ -20,7 +21,11 @@ import { useQueue } from '../../state/QueueContext';
 import { getCategoryIcon, UI_ICONS } from '../../utils/categoryIcons';
 import { SMART_COLLECTIONS } from '../../services/mockData';
 import EmptyState from '../../components/shared/EmptyState';
-import { Search, ChevronDown, LayoutGrid, List, Clock, Sparkles, BookOpen, AlertTriangle, ShieldOff, X } from 'lucide-react-native';
+import { Search, ChevronDown, ChevronRight, LayoutGrid, List, Clock, Sparkles, BookOpen, AlertTriangle, ShieldOff, X } from 'lucide-react-native';
+import { autoEnrollNewStudyItems, getStudyStats } from '../../services/spacedRepetitionService';
+import { STORAGE_KEYS } from '../../constants/storageKeys';
+
+const STUDY_AUTO_ENROLL_LAST_RUN_KEY = STORAGE_KEYS.LAST_SR_ENROLL_DATE;
 
 /**
  * CollectionsScreen — Overhauled visual library (Light Theme)
@@ -34,6 +39,36 @@ export default function CollectionsScreen() {
   const [activeFilter, setActiveFilter] = useState('All');
   const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'list'
   const [sortBy, setSortBy] = useState('Newest'); // 'Newest', 'Oldest', 'Name'
+  const [dueToday, setDueToday] = useState(0);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const syncStudyQueue = async () => {
+      try {
+        const today = new Date().toISOString().slice(0, 10);
+        const lastRun = await AsyncStorage.getItem(STUDY_AUTO_ENROLL_LAST_RUN_KEY);
+
+        if (lastRun !== today) {
+          await autoEnrollNewStudyItems();
+          await AsyncStorage.setItem(STUDY_AUTO_ENROLL_LAST_RUN_KEY, today);
+        }
+
+        const stats = await getStudyStats();
+        if (isMounted) {
+          setDueToday(stats?.dueToday || 0);
+        }
+      } catch (error) {
+        console.error('CollectionsScreen: failed to sync study queue', error);
+      }
+    };
+
+    syncStudyQueue();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [collectionItems.length]);
 
   const filters = useMemo(() => {
     const cats = new Set(collectionItems.map(i => i.contentType || 'Uncategorized'));
@@ -95,13 +130,6 @@ export default function CollectionsScreen() {
       );
       return { ...g, count: matchingItems.length };
     }).filter(g => g.count > 0);
-  }, [collectionItems]);
-
-  const spacedReviewCount = useMemo(() => {
-    return collectionItems.filter(item => 
-      item.contentType === 'Study' && 
-      (Date.now() - item.timestamp > 86400000) // Older than 24h
-    ).length;
   }, [collectionItems]);
 
   const recentItems = useMemo(() => {
@@ -349,6 +377,40 @@ export default function CollectionsScreen() {
       ) : (
         <>
           {renderControlBar()}
+
+          {dueToday > 0 ? (
+            <Pressable
+              style={[
+                styles.studyQueueCard,
+                {
+                  backgroundColor: palette.card,
+                  borderColor: palette.border,
+                  borderLeftColor: palette.primary,
+                },
+              ]}
+              onPress={() => navigation.navigate(COLLECTION_ROUTES.STUDY_QUEUE)}
+            >
+              <View style={styles.studyQueueIconWrap}>
+                <BookOpen size={18} color={palette.primary} />
+              </View>
+
+              <View style={styles.studyQueueTextWrap}>
+                <Text style={[styles.studyQueueTitle, { color: palette.textPrimary }]}>Study queue</Text>
+                <Text style={[styles.studyQueueSubtitle, { color: palette.textSecondary }]}>
+                  {dueToday} cards due today
+                </Text>
+              </View>
+
+              {dueToday >= 10 ? (
+                <View style={[styles.studyQueueBadge, { backgroundColor: palette.urgencyAmberBg }]}> 
+                  <Text style={[styles.studyQueueBadgeText, { color: palette.urgencyAmber }]}>10+</Text>
+                </View>
+              ) : null}
+
+              <ChevronRight size={18} color={palette.textSecondary} />
+            </Pressable>
+          ) : null}
+
           {renderRecentStrip()}
 
           <View style={styles.gridSection}>
@@ -449,19 +511,6 @@ export default function CollectionsScreen() {
             </View>
           )}
 
-          {/* Spaced Repetition */}
-          <View style={[styles.spacedRepSection, { backgroundColor: palette.primaryLight }]}>
-            <View style={styles.spacedRepContent}>
-              <View style={styles.spacedRepHeader}>
-                <BookOpen size={18} color={palette.primary} />
-                <Text style={[styles.spacedRepTitle, { color: palette.primary }]}>Spaced repetition queue</Text>
-              </View>
-              <Text style={[styles.spacedRepSub, { color: palette.textSecondary }]}>Review study screenshots today. Grow automatically.</Text>
-            </View>
-            <View style={[styles.spacedRepCount, { backgroundColor: palette.primary }]}>
-              <Text style={styles.spacedRepCountText}>{spacedReviewCount}</Text>
-            </View>
-          </View>
         </>
       )}
 
@@ -696,43 +745,46 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '500',
   },
-  spacedRepSection: {
+  studyQueueCard: {
     marginHorizontal: SPACING.md,
-    padding: 16,
-    borderRadius: RADIUS.lg,
+    marginBottom: SPACING.md,
+    borderWidth: 1,
+    borderLeftWidth: 2,
+    borderRadius: RADIUS.md,
+    borderTopLeftRadius: 0,
+    borderBottomLeftRadius: 0,
+    minHeight: 64,
+    paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
   },
-  spacedRepContent: {
+  studyQueueIconWrap: {
+    width: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  studyQueueTextWrap: {
     flex: 1,
-    marginRight: 12,
-  },
-  spacedRepHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  spacedRepTitle: {
-    fontSize: 15,
-    fontWeight: '700',
     marginLeft: 8,
   },
-  spacedRepSub: {
-    fontSize: 12,
+  studyQueueTitle: {
+    fontSize: 14,
     fontWeight: '500',
   },
-  spacedRepCount: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
+  studyQueueSubtitle: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginTop: 2,
   },
-  spacedRepCountText: {
-    color: '#FFF',
-    fontSize: 13,
-    fontWeight: '800',
+  studyQueueBadge: {
+    borderRadius: RADIUS.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginRight: 8,
+  },
+  studyQueueBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
   },
   // Needs Review styles
   reviewCountBadge: {

@@ -1,10 +1,32 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { LEGACY_STORAGE_KEYS, STORAGE_KEYS } from '../constants/storageKeys';
 
-const ACTION_QUEUE_KEY = 'screenmind_action_queue_v1';
+const ACTION_QUEUE_KEY = STORAGE_KEYS.ACTION_ITEMS;
+
+async function getQueueRawWithMigration() {
+  const currentRaw = await AsyncStorage.getItem(ACTION_QUEUE_KEY);
+  if (currentRaw !== null) {
+    return currentRaw;
+  }
+
+  for (const legacyKey of LEGACY_STORAGE_KEYS.ACTION_ITEMS || []) {
+    const legacyRaw = await AsyncStorage.getItem(legacyKey);
+    if (legacyRaw !== null) {
+      try {
+        await AsyncStorage.setItem(ACTION_QUEUE_KEY, legacyRaw);
+      } catch (error) {
+        console.error('[Storage] Failed to migrate action queue to primary key:', error);
+      }
+      return legacyRaw;
+    }
+  }
+
+  return null;
+}
 
 export async function getActionQueue() {
   try {
-    const rawValue = await AsyncStorage.getItem(ACTION_QUEUE_KEY);
+    const rawValue = await getQueueRawWithMigration();
 
     if (!rawValue) {
       return [];
@@ -17,7 +39,7 @@ export async function getActionQueue() {
 
     return parsed.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
   } catch (error) {
-    console.log('[Storage] Failed to read action queue:', error);
+    console.error('[Storage] Failed to read action queue:', error);
     return [];
   }
 }
@@ -33,7 +55,7 @@ export async function saveActionItem(newItem) {
 
     return updatedQueue;
   } catch (error) {
-    console.log('[Storage] Failed to save action item:', error);
+    console.error('[Storage] Failed to save action item:', error);
     throw error;
   }
 }
@@ -61,7 +83,7 @@ export async function replaceActionQueue(nextQueue) {
     await AsyncStorage.setItem(ACTION_QUEUE_KEY, JSON.stringify(sortedQueue));
     return sortedQueue;
   } catch (error) {
-    console.log('[Storage] Failed to replace action queue:', error);
+    console.error('[Storage] Failed to replace action queue:', error);
     throw error;
   }
 }
@@ -71,7 +93,7 @@ export async function clearActionQueue() {
     await AsyncStorage.removeItem(ACTION_QUEUE_KEY);
     return true;
   } catch (error) {
-    console.log('[Storage] Failed to clear action queue:', error);
+    console.error('[Storage] Failed to clear action queue:', error);
     return false;
   }
 }

@@ -29,12 +29,13 @@ import {
   getSuggestedPrompts,
   sendChatMessage,
 } from '../../services/askAIService';
+import { LEGACY_STORAGE_KEYS, STORAGE_KEYS } from '../../constants/storageKeys';
 
 import ChatMessage from '../../components/ChatMessage';
 
-const ASK_AI_HISTORY_KEY = 'askAI_history';
-const ASK_AI_SESSION_INDEX_KEY = 'askAI_sessions_index';
-const ASK_AI_SESSION_PREFIX = 'askAI_session_';
+const ASK_AI_HISTORY_KEY = STORAGE_KEYS.ASKAI_HISTORY;
+const ASK_AI_SESSION_INDEX_KEY = STORAGE_KEYS.ASKAI_SESSION_INDEX;
+const ASK_AI_SESSION_PREFIX = STORAGE_KEYS.ASKAI_SESSION_PREFIX;
 const MAX_STORED_MESSAGES = 30;
 const MAX_RESTORED_MESSAGES = 20;
 const ESTIMATED_MESSAGE_HEIGHT = 140;
@@ -58,6 +59,23 @@ function safeParse(rawValue, fallback) {
   } catch {
     return fallback;
   }
+}
+
+async function getWithLegacyMigration(primaryKey, legacyKeys = []) {
+  const currentRaw = await AsyncStorage.getItem(primaryKey);
+  if (currentRaw !== null) {
+    return currentRaw;
+  }
+
+  for (const legacyKey of legacyKeys) {
+    const legacyRaw = await AsyncStorage.getItem(legacyKey);
+    if (legacyRaw !== null) {
+      await AsyncStorage.setItem(primaryKey, legacyRaw);
+      return legacyRaw;
+    }
+  }
+
+  return null;
 }
 
 async function transcribeAudioWithGroq(audioUri) {
@@ -118,7 +136,10 @@ export default function AskAIScreen({ navigation }) {
   );
 
   const loadHistorySessions = useCallback(async () => {
-    const rawIndex = await AsyncStorage.getItem(ASK_AI_SESSION_INDEX_KEY);
+    const rawIndex = await getWithLegacyMigration(
+      ASK_AI_SESSION_INDEX_KEY,
+      LEGACY_STORAGE_KEYS.ASKAI_SESSION_INDEX || []
+    );
     const parsedIndex = safeParse(rawIndex, []);
     const sessions = Array.isArray(parsedIndex)
       ? parsedIndex.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
@@ -159,7 +180,10 @@ export default function AskAIScreen({ navigation }) {
       setAllItems(itemArray);
       setSuggestedPrompts(getSuggestedPrompts(itemArray));
 
-      const rawHistory = await AsyncStorage.getItem(ASK_AI_HISTORY_KEY);
+      const rawHistory = await getWithLegacyMigration(
+        ASK_AI_HISTORY_KEY,
+        LEGACY_STORAGE_KEYS.ASKAI_HISTORY || []
+      );
       const parsedHistory = safeParse(rawHistory, []);
       const restored = Array.isArray(parsedHistory)
         ? parsedHistory.slice(-MAX_RESTORED_MESSAGES)

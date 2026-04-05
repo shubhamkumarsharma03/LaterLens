@@ -1,9 +1,27 @@
 import { createContext, useCallback, useContext, useEffect, useReducer } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { LEGACY_STORAGE_KEYS, STORAGE_KEYS } from '../constants/storageKeys';
 
 const ChatContext = createContext(null);
 
-const STORAGE_KEY = '@LaterLens:ChatHistory';
+const STORAGE_KEY = STORAGE_KEYS.CHAT_HISTORY;
+
+async function getHistoryWithMigration() {
+  const currentRaw = await AsyncStorage.getItem(STORAGE_KEY);
+  if (currentRaw !== null) {
+    return currentRaw;
+  }
+
+  for (const legacyKey of LEGACY_STORAGE_KEYS.CHAT_HISTORY || []) {
+    const legacyRaw = await AsyncStorage.getItem(legacyKey);
+    if (legacyRaw !== null) {
+      await AsyncStorage.setItem(STORAGE_KEY, legacyRaw);
+      return legacyRaw;
+    }
+  }
+
+  return null;
+}
 
 const INITIAL_STATE = {
   messages: [],
@@ -41,7 +59,7 @@ export function ChatProvider({ children }) {
 
   const loadHistory = async () => {
     try {
-      const stored = await AsyncStorage.getItem(STORAGE_KEY);
+      const stored = await getHistoryWithMigration();
       if (stored) {
         dispatch({ type: CHAT_ACTIONS.SET_MESSAGES, payload: JSON.parse(stored) });
       } else {
@@ -84,6 +102,9 @@ export function ChatProvider({ children }) {
 
   const clearHistory = useCallback(async () => {
     await AsyncStorage.removeItem(STORAGE_KEY);
+    for (const legacyKey of LEGACY_STORAGE_KEYS.CHAT_HISTORY || []) {
+      await AsyncStorage.removeItem(legacyKey);
+    }
     dispatch({ type: CHAT_ACTIONS.CLEAR_HISTORY });
   }, []);
 

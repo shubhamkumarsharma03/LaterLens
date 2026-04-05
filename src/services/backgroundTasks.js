@@ -15,7 +15,7 @@ import {
   getSetting,
   SETTINGS_KEYS,
 } from './settingsStorage';
-import { sendNotification } from './notificationService';
+import { requestNotificationPermissions, sendNotification } from './notificationService';
 
 const BACKGROUND_SCREENSHOT_TASK = 'BACKGROUND_SCREENSHOT_TASK';
 
@@ -208,8 +208,7 @@ export async function registerBackgroundFetchAsync() {
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
     let finalStatus = existingStatus;
     if (existingStatus !== 'granted') {
-      const { status } = await Notifications.requestPermissionsAsync();
-      finalStatus = status;
+      finalStatus = await requestNotificationPermissions();
     }
 
     if (finalStatus !== 'granted') {

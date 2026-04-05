@@ -1,4 +1,6 @@
 {
     "java.compile.nullAnalysis.mode": "disabled",
-    "java.configuration.updateBuildConfiguration": "interactive"
+    "java.configuration.updateBuildConfiguration": "interactive",
+    "typescript.tsserver.experimental.enableProjectDiagnostics": false,
+    "javascript.suggestionActions.enabled": false
 }

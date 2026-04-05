@@ -1,12 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getGroqApiKey } from './settingsStorage';
+import { LEGACY_STORAGE_KEYS, STORAGE_KEYS } from '../constants/storageKeys';
 
-export const ACTION_QUEUE_KEY = 'screenmind_action_queue_v1';
+export const ACTION_QUEUE_KEY = STORAGE_KEYS.ACTION_ITEMS;
 
 const GROQ_CHAT_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
 const GROQ_CHAT_MODEL = 'llama-3.1-8b-instant';
 const MAX_MATCHED_ITEMS = 50;
-const MAX_HISTORY_MESSAGES = 20;
+const MAX_HISTORY_TURNS = 10;
 
 function toMillis(value) {
   if (!value) return 0;
@@ -75,9 +76,53 @@ async function getApiKey() {
   return null;
 }
 
-export async function searchLocalItems(query, filters = {}) {
-  const rawQueue = await AsyncStorage.getItem(ACTION_QUEUE_KEY);
-  const allItems = rawQueue ? JSON.parse(rawQueue) : [];
+function trimToLastTurns(history, turnLimit = MAX_HISTORY_TURNS) {
+  if (!Array.isArray(history) || history.length === 0) return [];
+
+  const collected = [];
+  let userCount = 0;
+
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    const msg = history[i];
+    if (!msg || (msg.role !== 'user' && msg.role !== 'assistant')) {
+      continue;
+    }
+
+    collected.push(msg);
+    if (msg.role === 'user') {
+      userCount += 1;
+      if (userCount >= turnLimit) {
+        break;
+      }
+    }
+  }
+
+  return collected.reverse();
+}
+
+async function getActionItemsRawWithMigration() {
+  const currentRaw = await AsyncStorage.getItem(ACTION_QUEUE_KEY);
+  if (currentRaw !== null) {
+    return currentRaw;
+  }
+
+  for (const legacyKey of LEGACY_STORAGE_KEYS.ACTION_ITEMS || []) {
+    const legacyRaw = await AsyncStorage.getItem(legacyKey);
+    if (legacyRaw !== null) {
+      await AsyncStorage.setItem(ACTION_QUEUE_KEY, legacyRaw);
+      return legacyRaw;
+    }
+  }
+
+  return null;
+}
+
+export async function searchLocalItems(query, filters = {}, sourceItems) {
+  let allItems = sourceItems;
+  if (!Array.isArray(allItems)) {
+    const rawQueue = await getActionItemsRawWithMigration();
+    allItems = rawQueue ? JSON.parse(rawQueue) : [];
+  }
   const queryText = String(query || '').trim();
   const normalizedQuery = queryText.toLowerCase();
 
@@ -144,7 +189,7 @@ export function buildGroqContext(userQuery, matchedItems) {
 }
 
 export async function sendChatMessage(conversationHistory, userQuery, allItems) {
-  const matchedItems = await searchLocalItems(userQuery, {});
+  const matchedItems = await searchLocalItems(userQuery, {}, allItems);
   const { systemPrompt, userMessage, itemCount } = buildGroqContext(userQuery, matchedItems);
   const apiKey = await getApiKey();
 
@@ -152,10 +197,7 @@ export async function sendChatMessage(conversationHistory, userQuery, allItems) 
     throw new Error('No Groq API key found. Add one in Profile settings.');
   }
 
-  const history = Array.isArray(conversationHistory) ? conversationHistory : [];
-  const lastTenTurns = history
-    .filter((msg) => msg?.role === 'user' || msg?.role === 'assistant')
-    .slice(-MAX_HISTORY_MESSAGES)
+  const history = trimToLastTurns(Array.isArray(conversationHistory) ? conversationHistory : [])
     .map((msg) => ({
       role: msg.role,
       content: String(msg.content || ''),
@@ -171,7 +213,7 @@ export async function sendChatMessage(conversationHistory, userQuery, allItems) 
       model: GROQ_CHAT_MODEL,
       messages: [
         { role: 'system', content: systemPrompt },
-        ...lastTenTurns,
+        ...history,
         { role: 'user', content: userMessage },
       ],
       max_tokens: 600,

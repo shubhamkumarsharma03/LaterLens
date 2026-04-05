@@ -29,7 +29,7 @@ import { validateGroqKey } from '../../services/aiProcessingEngine';
 import SettingCard from '../../components/settings/SettingCard';
 import StorageUsageBar from '../../components/settings/StorageUsageBar';
 import { calculateStorageStats, exportMetadata, bulkImportScreenshots, wipeAllAppData, getLastBulkImportSummary } from '../../services/dataManagementService';
-import { scheduleDailyDigest, sendNotification } from '../../services/notificationService';
+import { getNextDailyDigestOccurrence, scheduleDailyDigest, sendNotification } from '../../services/notificationService';
 
 export default function ProfileScreen() {
   const { user, isAuthenticated, signOut, signIn } = useAuth();
@@ -138,11 +138,16 @@ export default function ProfileScreen() {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
-  const toggleNotificationType = (key) => {
-    const updated = { ...settings.notificationConfig, [key]: !settings.notificationConfig[key] };
-    updateSetting('notificationConfig', updated);
-    scheduleDailyDigest();
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  const toggleNotificationType = async (key) => {
+    try {
+      const updated = { ...settings.notificationConfig, [key]: !settings.notificationConfig[key] };
+      await updateSetting('notificationConfig', updated);
+      await scheduleDailyDigest();
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch (error) {
+      console.error('[ProfileScreen] Failed to update notification type:', error);
+      Alert.alert('Update Failed', 'Unable to update notification settings right now.');
+    }
   };
 
   const SectionHeader = ({ title }) => (
@@ -291,8 +296,23 @@ export default function ProfileScreen() {
               onChange={(e, date) => {
                 setShowTimePicker(false);
                 if (date) {
-                  const time = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-                  handleToggle('dailyDigestTime', time);
+                  (async () => {
+                    const time = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+                    const notificationConfig = {
+                      ...settings.notificationConfig,
+                      dailyDigest: true,
+                    };
+
+                    await updateSetting('notificationConfig', notificationConfig);
+                    await updateSetting('dailyDigestTime', time);
+                    await scheduleDailyDigest(time);
+
+                    const nextFire = getNextDailyDigestOccurrence(time);
+                    Alert.alert(
+                      'Daily digest scheduled',
+                      `Your digest is set for ${time}.\nNext alert: ${nextFire.toLocaleString()}`
+                    );
+                  })();
                 }
               }}
             />

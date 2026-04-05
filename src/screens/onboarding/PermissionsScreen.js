@@ -71,7 +71,16 @@ export default function PermissionsScreen({ navigation }) {
 
     // Notifications (Required)
     if (permissions.notifications) {
-      const { status } = await Notifications.requestPermissionsAsync();
+      const { status } = await Notifications.requestPermissionsAsync({
+        ios: {
+          allowAlert: true,
+          allowSound: true,
+          allowBadge: true,
+          allowCriticalAlerts: false,
+          provideAppNotificationSettings: true,
+          allowProvisional: false,
+        },
+      });
       if (status !== 'granted') {
         Alert.alert('Required Permission', 'Notifications are required for the daily digest.');
         return;

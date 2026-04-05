@@ -19,6 +19,7 @@ import CollectionsScreen from '../screens/collections/CollectionsScreen';
 import CollectionSearchScreen from '../screens/collections/CollectionSearchScreen';
 import CollectionCategoryScreen from '../screens/collections/CollectionCategoryScreen';
 import CollectionThreadScreen from '../screens/collections/CollectionThreadScreen';
+import StudyQueueScreen from '../screens/collections/StudyQueueScreen';
 import AskAIScreen from '../screens/askAI/AskAIScreen';
 import AskAIChatScreen from '../screens/askAI/AskAIChatScreen';
 import AskAIBoardScreen from '../screens/askAI/AskAIBoardScreen';
@@ -81,6 +82,7 @@ function CollectionsStackNavigator() {
       <CollectionsStack.Screen name={COLLECTION_ROUTES.SEARCH} component={CollectionSearchScreen} options={{ title: 'Search' }} />
       <CollectionsStack.Screen name={COLLECTION_ROUTES.CATEGORY} component={CollectionCategoryScreen} options={{ title: 'Category' }} />
       <CollectionsStack.Screen name={COLLECTION_ROUTES.THREAD} component={CollectionThreadScreen} options={{ title: 'Thread' }} />
+      <CollectionsStack.Screen name={COLLECTION_ROUTES.STUDY_QUEUE} component={StudyQueueScreen} options={{ title: 'Study Queue' }} />
     </CollectionsStack.Navigator>
   );
 }

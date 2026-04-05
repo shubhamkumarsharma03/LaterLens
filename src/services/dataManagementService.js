@@ -5,9 +5,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getActionQueue, saveActionItem, clearActionQueue } from './actionQueueStorage';
 import { processScreenshot } from './aiProcessingEngine';
 import { getSetting, SETTINGS_KEYS } from './settingsStorage';
+import { LEGACY_STORAGE_KEYS, STORAGE_KEYS } from '../constants/storageKeys';
 
-const ACTION_QUEUE_KEY = 'screenmind_action_queue_v1';
-const LAST_BULK_IMPORT_KEY = 'laterlens_last_bulk_import_summary';
+const ACTION_QUEUE_KEY = STORAGE_KEYS.ACTION_ITEMS;
+const LAST_BULK_IMPORT_KEY = STORAGE_KEYS.BULK_IMPORT_SUMMARY;
 
 // Process max 3 screenshots simultaneously during bulk import.
 // Without this, 200 dark-mode screenshots all triggering contrast-boost retries
@@ -87,7 +88,16 @@ export async function wipeAllAppData() {
  */
 export async function getLastBulkImportSummary() {
   try {
-    const raw = await AsyncStorage.getItem(LAST_BULK_IMPORT_KEY);
+    let raw = await AsyncStorage.getItem(LAST_BULK_IMPORT_KEY);
+    if (raw === null) {
+      for (const legacyKey of LEGACY_STORAGE_KEYS.BULK_IMPORT_SUMMARY || []) {
+        raw = await AsyncStorage.getItem(legacyKey);
+        if (raw !== null) {
+          await AsyncStorage.setItem(LAST_BULK_IMPORT_KEY, raw);
+          break;
+        }
+      }
+    }
     return raw ? JSON.parse(raw) : null;
   } catch (_) {
     return null;

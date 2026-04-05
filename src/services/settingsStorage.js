@@ -1,31 +1,32 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { STORAGE_KEYS } from '../constants/storageKeys';
 
 const KEYS = {
-  SCREENSHOT_ALBUM_ID: 'laterlens_screenshot_album_id',
-  SCREENSHOT_ALBUM_TITLE: 'laterlens_screenshot_album_title',
-  HAS_INITIAL_SCAN_COMPLETED: 'laterlens_has_initial_scan_completed',
-  LAST_SCANNED_TIMESTAMP: 'laterlens_last_scanned_timestamp',
-  GROQ_API_KEY: 'laterlens_groq_api_key',
+  SCREENSHOT_ALBUM_ID: STORAGE_KEYS.SCREENSHOT_ALBUM_ID,
+  SCREENSHOT_ALBUM_TITLE: STORAGE_KEYS.SCREENSHOT_ALBUM_TITLE,
+  HAS_INITIAL_SCAN_COMPLETED: STORAGE_KEYS.HAS_INITIAL_SCAN_COMPLETED,
+  LAST_SCANNED_TIMESTAMP: STORAGE_KEYS.LAST_SCANNED_TIMESTAMP,
+  GROQ_API_KEY: STORAGE_KEYS.GROQ_API_KEY,
   
   // AI & Processing
-  AI_MODE: 'laterlens_ai_mode', // 'cloud' (default) or 'on-device'
-  AUTO_PROCESSING_ENABLED: 'laterlens_auto_processing_enabled',
-  WIFI_ONLY: 'laterlens_wifi_only',
+  AI_MODE: STORAGE_KEYS.AI_MODE, // 'cloud' (default) or 'on-device'
+  AUTO_PROCESSING_ENABLED: STORAGE_KEYS.AUTO_PROCESSING_ENABLED,
+  WIFI_ONLY: STORAGE_KEYS.WIFI_ONLY,
   
   // Folders & Import
-  WATCHED_FOLDER_IDS: 'laterlens_watched_folder_ids',
-  EXCLUSION_RULES: 'laterlens_exclusion_rules',
+  WATCHED_FOLDER_IDS: STORAGE_KEYS.WATCHED_FOLDER_IDS,
+  EXCLUSION_RULES: STORAGE_KEYS.EXCLUSION_RULES,
   
   // Notifications
-  DAILY_DIGEST_TIME: 'laterlens_daily_digest_time',
-  NOTIFICATION_CONFIG: 'laterlens_notification_config',
-  QUIET_HOURS: 'laterlens_quiet_hours',
+  DAILY_DIGEST_TIME: STORAGE_KEYS.DAILY_DIGEST_TIME,
+  NOTIFICATION_CONFIG: STORAGE_KEYS.NOTIFICATION_CONFIG,
+  QUIET_HOURS: STORAGE_KEYS.QUIET_HOURS,
   
   // Data & Storage
-  AUTO_ARCHIVE_DAYS: 'laterlens_auto_archive_days',
+  AUTO_ARCHIVE_DAYS: STORAGE_KEYS.AUTO_ARCHIVE_DAYS,
   
   // Privacy
-  PRIVACY_RULES: 'laterlens_privacy_rules',
+  PRIVACY_RULES: STORAGE_KEYS.PRIVACY_RULES,
 };
 
 /**

@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Platform } from 'react-native';
+import { AppState } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as Notifications from 'expo-notifications';
@@ -11,6 +11,11 @@ import { SettingsProvider } from './src/state/SettingsContext';
 import { QueueProvider } from './src/state/QueueContext';
 import { ChatProvider } from './src/state/ChatContext';
 import { registerBackgroundFetchAsync } from './src/services/backgroundTasks';
+import {
+  ensureNotificationChannels,
+  reRegisterDailyDigestIfMissing,
+  requestNotificationPermissions,
+} from './src/services/notificationService';
 
 // Configure notification behavior
 Notifications.setNotificationHandler({
@@ -26,31 +31,34 @@ export default function App() {
     // 1. Register Background Tasks
     registerBackgroundFetchAsync();
 
-    // 2. Setup Notifications for Android & Request Permissions
+    // 2. Setup notification channels + permissions and verify digest schedule.
     async function setupNotifications() {
-      if (Platform.OS === 'android') {
-        await Notifications.setNotificationChannelAsync('default', {
-          name: 'LaterLens Alerts',
-          importance: Notifications.AndroidImportance.MAX,
-          vibrationPattern: [0, 250, 250, 250],
-          lightColor: '#6366F1',
-        });
-      }
+      await ensureNotificationChannels();
 
       if (Device.isDevice) {
-        const { status: existingStatus } = await Notifications.getPermissionsAsync();
-        let finalStatus = existingStatus;
-        if (existingStatus !== 'granted') {
-          const { status } = await Notifications.requestPermissionsAsync();
-          finalStatus = status;
-        }
+        const finalStatus = await requestNotificationPermissions();
         if (finalStatus !== 'granted') {
           console.log('[App] Failed to get push token for notification!');
         }
       }
+
+      await reRegisterDailyDigestIfMissing();
     }
 
     setupNotifications();
+
+    // Re-verify daily digest registration whenever app returns to foreground.
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        reRegisterDailyDigestIfMissing().catch((error) => {
+          console.error('[App] Failed to re-register daily digest on foreground:', error);
+        });
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
   }, []);
 
   return (
