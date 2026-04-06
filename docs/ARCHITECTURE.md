@@ -105,6 +105,64 @@ sequenceDiagram
 
 ---
 
+## OCR Pipeline (4 Layers)
+
+LaterLens uses a staged OCR pipeline to improve extraction quality for dark UIs, low-contrast interfaces, mixed-language screenshots, and dense app layouts, while keeping processing fully on-device.
+
+### Layer 1: Image Preprocessing
+
+- Input screenshot is resized and converted to PNG using `expo-image-manipulator`
+- Tone is estimated from a center band (`dark`, `light`, `mixed`)
+- Color transforms are applied via `@shopify/react-native-skia` only:
+    - `dark`: greyscale -> inversion -> sharpen
+    - `light`: sharpen
+    - `mixed`: contrast boost -> sharpen
+- Intermediate files are deleted in `finally` blocks; processed output is returned for OCR
+
+### Layer 2: Multi-Script ML Kit Recognition
+
+- LATIN script recognition always executes
+- DEVANAGARI script recognition runs only when likely Indian-app/Hindi content is detected
+- This conditional path improves multilingual extraction while avoiding unnecessary latency on non-Indian content
+
+### Layer 3: OCR Post-Processing
+
+- Merge LATIN and DEVANAGARI blocks and remove overlaps/duplicates
+- Remove UI chrome text (status bar, nav labels, social actions, relative timestamps)
+- Trim edge regions (top status area and bottom nav area)
+- Keep unknown confidence blocks, but discard explicitly low-confidence ones
+- Sort by reading order and assemble into paragraph text
+- Output quality metrics: word count, block count, Devanagari flag, confidence level
+
+### Layer 4: Confidence Retry
+
+- If low content is detected and the image path was not inverted, apply stronger contrast and retry OCR
+- Keep retry output only when it improves extracted meaningful word count
+- Skip retry when dark-mode inversion already happened
+
+### Operational Constraints
+
+- OCR and image processing are performed on-device
+- No paid OCR API or external image processing service is used
+- Temp file cleanup is mandatory to avoid cache growth
+- Debug logs are gated behind a disabled-by-default `DEBUG` flag
+- Target user-facing latency is bounded to approximately 8 seconds on mid-range Android hardware
+
+---
+
+## Detect Text UX States
+
+The action card text-detection workflow is stateful and exposes progress to users:
+
+- `idle`: ready to run OCR
+- `processing`: stage updates (prepare, detect, Hindi pass, clean, retry)
+- `success`: word count, confidence badge, optional Devanagari badge, expandable text preview
+- `failed`: recovery guidance and retry affordance
+
+This state model ensures transparent OCR progress and better user trust for longer processing paths.
+
+---
+
 ## Data Models (ERD)
 Logic schema for how data is structured within local storage.
 

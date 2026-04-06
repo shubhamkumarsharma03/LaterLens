@@ -26,6 +26,7 @@ export const STORAGE_KEYS = {
   QUIET_HOURS: 'laterlens_quiet_hours',
   AUTO_ARCHIVE_DAYS: 'laterlens_auto_archive_days',
   PRIVACY_RULES: 'laterlens_privacy_rules',
+  LIKELY_INDIAN_APP_FLAG: 'll_indian_app_flag',
 };
 
 export const LEGACY_STORAGE_KEYS = {

@@ -1,23 +1,17 @@
-import TextRecognition from '@react-native-ml-kit/text-recognition';
-import * as ImageManipulator from 'expo-image-manipulator';
+import TextRecognition, { TextRecognitionScript } from '@react-native-ml-kit/text-recognition';
 import * as FileSystem from 'expo-file-system';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getGroqApiKey } from './settingsStorage';
 import { checkPrivacy, getSensitivitySummary, redactSensitiveText, PRIVACY_GATE_VERSION } from './privacyGate';
 import { saveLocalOnlyItem } from './actionQueueStorage';
+import { preprocessImageForOCR, boostContrast, inferToneFromBlocks } from './ocrPreprocessor';
+import { postProcessOCR, containsDevanagari } from './ocrPostProcessor';
+import { STORAGE_KEYS } from '../constants/storageKeys';
 
 const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
 const GROQ_MODEL = 'llama-3.1-8b-instant';
 
-// --- OCR PREPROCESSING CONSTANTS ---
-// Max dimensions to prevent OOM on high-res devices (1440x3200 flagships)
-const MAX_OCR_WIDTH = 1500;
-const MAX_OCR_HEIGHT = 3000;
-// Minimum width for ML Kit to produce usable results
-const MIN_OCR_WIDTH = 1200;
-
-// Regex to count meaningful English words (3+ alpha chars), filtering out
-// symbols, numbers, and single-char tokens ML Kit over-counts on Indian UIs
-const MEANINGFUL_WORD_REGEX = /\b[a-zA-Z]{3,}\b/g;
+const DEBUG = __DEV__ && false;
 
 const FALLBACK_RESULT = {
   contentType: 'Idea',
@@ -112,192 +106,191 @@ async function cleanupTempFile(uri) {
   }
 }
 
-/**
- * Low-level OCR call. Does NOT preprocess — use runOCRWithFallback instead.
- *
- * @param {string} imageUri - Local file URI.
- * @returns {Promise<string>} Extracted text.
- */
-export async function extractTextFromImage(imageUri) {
-  if (!imageUri) {
-    throw new Error('Missing image URI for OCR extraction.');
-  }
+// ─────────────────────────────────────────────
+//  TASK 1 — 4-Layer OCR Pipeline
+// ─────────────────────────────────────────────
 
+/**
+ * Checks whether the device has previously detected Devanagari content.
+ * If so, all future screenshots automatically get dual-pass recognition.
+ *
+ * @returns {Promise<boolean>}
+ */
+async function getCachedIndianAppFlag() {
   try {
-    const result = await TextRecognition.recognize(imageUri);
-    const text = (result?.text || '').trim();
-    return text;
-  } catch (error) {
-    console.log('[OCR] Failed to extract text from image:', error);
-    throw error;
+    const flag = await AsyncStorage.getItem(STORAGE_KEYS.LIKELY_INDIAN_APP_FLAG);
+    return flag === 'true';
+  } catch {
+    return false;
   }
 }
 
-// ─────────────────────────────────────────────
-//  TASK 1 — OCR Preprocessing & Retry Pipeline
-// ─────────────────────────────────────────────
+/**
+ * Persists the Indian app flag so future screenshots skip the bootstrap check.
+ *
+ * @returns {Promise<void>}
+ */
+async function setCachedIndianAppFlag() {
+  try {
+    await AsyncStorage.setItem(STORAGE_KEYS.LIKELY_INDIAN_APP_FLAG, 'true');
+  } catch {
+    // Best-effort — non-critical
+  }
+}
 
 /**
- * Preprocesses an image for better OCR accuracy.
+ * Complete 4-layer OCR pipeline with optional progress callback.
  *
- * - Caps dimensions at MAX_OCR_WIDTH × MAX_OCR_HEIGHT to prevent OOM on
- *   high-res flagships (1440×3200 on Redmi/Realme = 8–15 MB PNG per image).
- * - Upscales to MIN_OCR_WIDTH if too small for ML Kit.
- * - Always outputs PNG with compress: 1 (lossless) — JPEG artefacts destroy
- *   OCR accuracy at text edges.
+ * LAYER 1 — Preprocessing (Skia tone detection, colour transforms)
+ * LAYER 2 — Multi-script ML Kit recognition (LATIN + conditional DEVANAGARI)
+ * LAYER 3 — Post-processing (chrome filter, edge filter, dedup, assembly)
+ * LAYER 4 — Confidence check and contrast-boost retry
  *
- * @param {string} imageUri - Local file URI.
- * @returns {Promise<{processedUri: string, wasContrastBoosted: boolean, originalWidth: number, processedWidth: number, tempFiles: string[]}>}
+ * @param {string} imageUri - Local file URI of the screenshot.
+ * @param {object} [options] - Optional configuration.
+ * @param {function} [options.onStageChange] - Callback invoked at each pipeline stage.
+ * @returns {Promise<{text: string, wordCount: number, blockCount: number, hasDevanagari: boolean, confidence: string, wasRetried: boolean, wasInverted: boolean, originalTone: string, ocrFailed: boolean}>}
  */
-export async function preprocessImageForOCR(imageUri) {
-  // Collect temp URIs so callers can clean up after OCR
-  const tempFiles = [];
+export async function runOCRWithFallback(imageUri, options = {}) {
+  const { onStageChange } = options;
+  const notify = (stage) => { if (onStageChange) onStageChange(stage); };
+
+  let processedUri = null;
 
   try {
-    // Step 1 — Probe dimensions with a no-op manipulation
-    const probe = await ImageManipulator.manipulateAsync(
-      imageUri,
-      [],
-      { format: 'png', compress: 1 }
+    // ── LAYER 1 — Preprocessing ──
+    notify('Preparing image...');
+    const preprocessed = await preprocessImageForOCR(imageUri);
+    processedUri = preprocessed.processedUri;
+
+    let effectiveTone = preprocessed.originalTone;
+
+    // ── LAYER 2 — Multi-script Recognition ──
+    notify('Detecting text...');
+    const latinResult = await TextRecognition.recognize(
+      processedUri,
+      { script: TextRecognitionScript.LATIN }
     );
-    tempFiles.push(probe.uri);
 
-    const originalWidth = probe.width;
-    const originalHeight = probe.height;
-    const actions = [];
-
-    // Step 2 — Clamp oversized images DOWN to fit within budget
-    if (originalWidth > MAX_OCR_WIDTH || originalHeight > MAX_OCR_HEIGHT) {
-      // Scale proportionally so BOTH dimensions are within limits
-      const scaleW = MAX_OCR_WIDTH / originalWidth;
-      const scaleH = MAX_OCR_HEIGHT / originalHeight;
-      const scale = Math.min(scaleW, scaleH); // pick tighter constraint
-      actions.push({ resize: { width: Math.round(originalWidth * scale) } });
-    }
-    // Step 3 — Upscale tiny screenshots so ML Kit has enough pixels
-    else if (originalWidth < MIN_OCR_WIDTH) {
-      actions.push({ resize: { width: MIN_OCR_WIDTH } });
-    }
-
-    if (actions.length > 0) {
-      const resized = await ImageManipulator.manipulateAsync(
-        imageUri,
-        actions,
-        { format: 'png', compress: 1 }
+    // Handle Level 3 tone detection (OCR block density) if L1+L2 failed
+    if (effectiveTone === 'unknown') {
+      effectiveTone = inferToneFromBlocks(
+        latinResult.blocks || [],
+        preprocessed.originalDimensions.height
       );
-      tempFiles.push(resized.uri);
-      return {
-        processedUri: resized.uri,
-        wasContrastBoosted: false,
-        originalWidth,
-        processedWidth: resized.width,
-        tempFiles,
-      };
+      if (DEBUG) console.log('[OCR] Level 3 tone inference:', effectiveTone);
+
+      // If dark was detected via L3 and we didn't already invert,
+      // we need to re-preprocess. For now, accept the mixed processing
+      // since re-running the full pipeline would exceed time budget.
     }
 
-    // No resize needed — use the probe output directly
-    return {
-      processedUri: probe.uri,
-      wasContrastBoosted: false,
-      originalWidth,
-      processedWidth: originalWidth,
-      tempFiles,
-    };
-  } catch (error) {
-    console.warn('[LaterLens OCR] ImageManipulator failed, falling back to original:', error);
-    return {
-      processedUri: imageUri,
-      wasContrastBoosted: false,
-      originalWidth: 0,
-      processedWidth: 0,
-      tempFiles, // still return any files created before the error
-    };
-  }
-}
+    // Determine if we should run DEVANAGARI pass
+    const cachedIndian = await getCachedIndianAppFlag();
+    let likelyIndianApp = cachedIndian || preprocessed.likelyIndianApp;
 
-/**
- * Runs OCR with a contrast-boost fallback for dark-mode screenshots.
- *
- * Pipeline:
- *   1. Preprocess (resize/PNG)
- *   2. Recognise text
- *   3. If rawWordCount < 5, boost contrast/brightness and retry
- *   4. Keep result with HIGHER raw word count
- *   5. If BOTH < 3 raw words → ocrFailed: true
- *
- * Confidence is based on *meaningful* English words (3+ alpha chars) to
- * avoid over-counting ₹, numbers, dashes that ML Kit returns on dense
- * Indian app UIs (PhonePe, GPay, banking apps).
- *
- * All temp PNG files are cleaned up after OCR completes.
- *
- * @param {string} imageUri - Local file URI.
- * @returns {Promise<{text: string, wordCount: number, confidence: string, wasRetried: boolean, ocrFailed: boolean}>}
- */
-export async function runOCRWithFallback(imageUri) {
-  const preprocessed = await preprocessImageForOCR(imageUri);
-  const allTempFiles = [...preprocessed.tempFiles];
-
-  try {
-    // Attempt 1 — recognise on preprocessed image
-    let text = await extractTextFromImage(preprocessed.processedUri);
-    let rawWordCount = text.split(/\s+/).filter(w => w.length > 0).length;
-    let wasRetried = false;
-
-    // Retry if raw token count is too low (< 5)
-    if (rawWordCount < 5) {
-      try {
-        const boosted = await ImageManipulator.manipulateAsync(
-          preprocessed.processedUri,
-          [
-            { contrast: 1.4 },    // lift contrast for dark backgrounds
-            { brightness: 0.15 }, // slight brightness bump
-          ],
-          { format: 'png', compress: 1 }
-        );
-        allTempFiles.push(boosted.uri);
-
-        const boostedText = await extractTextFromImage(boosted.uri);
-        const boostedRawCount = boostedText.split(/\s+/).filter(w => w.length > 0).length;
-
-        // Keep whichever attempt returned more words
-        if (boostedRawCount > rawWordCount) {
-          text = boostedText;
-          rawWordCount = boostedRawCount;
-          wasRetried = true;
-        }
-      } catch (e) {
-        console.warn('[LaterLens OCR] Contrast boost failed:', e);
+    // Bootstrap: check LATIN result for Devanagari characters
+    if (!likelyIndianApp) {
+      const latinText = (latinResult.blocks || []).map((b) => b.text || '').join(' ');
+      if (containsDevanagari(latinText)) {
+        likelyIndianApp = true;
+        await setCachedIndianAppFlag();
       }
     }
 
-    // Mark as failed if both attempts produced < 3 raw tokens
-    const ocrFailed = rawWordCount < 3;
-    if (ocrFailed) {
-      console.warn('[LaterLens OCR] Low confidence result — skipping AI processing', { rawWordCount });
+    let devanagariResult = { blocks: [] };
+    if (likelyIndianApp) {
+      notify('Processing Hindi text...');
+      try {
+        devanagariResult = await TextRecognition.recognize(
+          processedUri,
+          { script: TextRecognitionScript.DEVANAGARI }
+        );
+      } catch (devErr) {
+        if (DEBUG) console.warn('[OCR] Devanagari pass failed:', devErr);
+        devanagariResult = { blocks: [] };
+      }
     }
 
-    // Confidence is based on meaningful English words, not raw token count.
-    // Indian app screenshots often have 40+ ML Kit "words" where only 8 are
-    // actual English — counting ₹, commas, dashes inflates the number.
-    const meaningfulWordCount = (text.match(MEANINGFUL_WORD_REGEX) || []).length;
-    let confidence = 'low';
-    if (meaningfulWordCount >= 8) confidence = 'high';
-    else if (meaningfulWordCount >= 3) confidence = 'medium';
+    // ── LAYER 3 — Post-processing ──
+    notify('Cleaning results...');
+    let finalPostProcessed = postProcessOCR(
+      latinResult.blocks || [],
+      devanagariResult.blocks || [],
+      preprocessed.originalDimensions.height
+    );
+    let wasRetried = false;
+
+    // ── LAYER 4 — Confidence check and retry ──
+    if (finalPostProcessed.wordCount < 5 && !preprocessed.wasInverted) {
+      // Light/mixed mode with poor results — try contrast boost
+      notify('Retrying with boost...');
+      let boostedUri = null;
+      try {
+        boostedUri = await boostContrast(processedUri, 1.5);
+
+        const retryResult = await TextRecognition.recognize(
+          boostedUri,
+          { script: TextRecognitionScript.LATIN }
+        );
+
+        const retryPostProcessed = postProcessOCR(
+          retryResult.blocks || [],
+          [],
+          preprocessed.originalDimensions.height
+        );
+
+        if (retryPostProcessed.wordCount > finalPostProcessed.wordCount) {
+          finalPostProcessed = retryPostProcessed;
+          wasRetried = true;
+        }
+      } catch (retryErr) {
+        if (DEBUG) console.warn('[OCR] Contrast retry failed:', retryErr);
+      } finally {
+        // Clean up boosted image
+        if (boostedUri) {
+          await cleanupTempFile(boostedUri);
+        }
+      }
+    }
+
+    const ocrFailed = finalPostProcessed.wordCount < 2;
+    if (ocrFailed && DEBUG) {
+      console.warn('[OCR] Low confidence result — ocrFailed', {
+        wordCount: finalPostProcessed.wordCount,
+      });
+    }
 
     return {
-      text,
-      wordCount: rawWordCount,
-      confidence,
+      text: finalPostProcessed.text,
+      wordCount: finalPostProcessed.wordCount,
+      blockCount: finalPostProcessed.blockCount,
+      hasDevanagari: finalPostProcessed.hasDevanagari,
+      confidence: finalPostProcessed.confidence,
       wasRetried,
+      wasInverted: preprocessed.wasInverted,
+      originalTone: effectiveTone,
       ocrFailed,
     };
+  } catch (err) {
+    if (DEBUG) console.error('[OCR] Pipeline error:', err);
+    return {
+      text: '',
+      wordCount: 0,
+      blockCount: 0,
+      hasDevanagari: false,
+      confidence: 'low',
+      wasRetried: false,
+      wasInverted: false,
+      originalTone: 'unknown',
+      ocrFailed: true,
+      error: err.message,
+    };
   } finally {
-    // CLEANUP — delete every temp PNG we created during this pipeline.
-    // Without this, each screenshot generates orphaned PNGs in the cache dir.
-    // On a user with 500 screenshots, that's potentially gigabytes of temp files.
-    for (const uri of allTempFiles) {
-      await cleanupTempFile(uri);
+    // CLEANUP — delete the processed image (preprocessor's temp files
+    // are already cleaned by preprocessImageForOCR's own finally block)
+    if (processedUri && processedUri !== imageUri) {
+      await cleanupTempFile(processedUri);
     }
   }
 }

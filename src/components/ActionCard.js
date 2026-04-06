@@ -10,14 +10,18 @@
  *   - Swipe left = snooze options
  *   - Relative timestamp label
  *   - Haptic feedback on all interactions
+ *   - Text Detect button with 4-state OCR pipeline feedback
  */
 
 import { useCallback, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Animated,
+  Easing,
   Image,
   Linking,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -37,10 +41,16 @@ import {
   Calendar,
   User,
   Tag,
+  ScanText,
+  CheckCircle,
+  XCircle,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { useTheme } from '../theme/useTheme';
 import { TYPOGRAPHY, SPACING, RADIUS } from '../theme/colors';
+import { runOCRWithFallback } from '../services/aiProcessingEngine';
 
 // ─── Category Icon Map ───────────────────────────────────────
 
@@ -144,6 +154,222 @@ function SmartThumbnail({ item, palette, isDark }) {
       style={styles.thumbnail}
       onError={() => setFailed(true)}
     />
+  );
+}
+
+// ─── Confidence Pill ─────────────────────────────────────────
+
+function ConfidencePill({ confidence, palette }) {
+  const colorMap = {
+    high: { bg: 'rgba(34,197,94,0.12)', text: '#22C55E' },
+    medium: { bg: 'rgba(245,158,11,0.12)', text: '#F59E0B' },
+    low: { bg: 'rgba(239,68,68,0.12)', text: '#EF4444' },
+  };
+  const colors = colorMap[confidence] || colorMap.low;
+
+  return (
+    <View style={[styles.confidencePill, { backgroundColor: colors.bg }]}>
+      <Text style={[styles.confidenceText, { color: colors.text }]}>
+        {confidence}
+      </Text>
+    </View>
+  );
+}
+
+// ─── Text Detect Button ──────────────────────────────────────
+
+function TextDetectButton({ item, palette, isDark }) {
+  const [ocrState, setOcrState] = useState('idle');
+  const [ocrStage, setOcrStage] = useState('');
+  const [ocrResult, setOcrResult] = useState(null);
+  const [showTextPreview, setShowTextPreview] = useState(false);
+
+  // Animations for success state
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(8)).current;
+  const previewHeightAnim = useRef(new Animated.Value(0)).current;
+
+  const animateSuccess = useCallback(() => {
+    fadeAnim.setValue(0);
+    slideAnim.setValue(8);
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 300,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 300,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [fadeAnim, slideAnim]);
+
+  const togglePreview = useCallback(() => {
+    const toShow = !showTextPreview;
+    setShowTextPreview(toShow);
+    Animated.timing(previewHeightAnim, {
+      toValue: toShow ? 120 : 0,
+      duration: 200,
+      easing: Easing.inOut(Easing.quad),
+      useNativeDriver: false,
+    }).start();
+  }, [showTextPreview, previewHeightAnim]);
+
+  const handleDetectPress = useCallback(async () => {
+    if (ocrState === 'processing') return;
+
+    setOcrState('processing');
+    setOcrStage('Preparing image...');
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    try {
+      const result = await runOCRWithFallback(
+        item.imagePath || item.imageUri,
+        { onStageChange: setOcrStage }
+      );
+
+      if (result.ocrFailed) {
+        setOcrState('failed');
+      } else {
+        setOcrResult(result);
+        setOcrState('success');
+        animateSuccess();
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      }
+    } catch (_err) {
+      setOcrState('failed');
+    }
+  }, [item, ocrState, animateSuccess]);
+
+  const handleRetry = useCallback(() => {
+    setOcrState('idle');
+    setOcrResult(null);
+    setShowTextPreview(false);
+    previewHeightAnim.setValue(0);
+  }, [previewHeightAnim]);
+
+  // Capture touch to prevent PanResponder/Swipeable from claiming it
+  const captureTouch = () => true;
+
+  // ── IDLE state ──
+  if (ocrState === 'idle') {
+    return (
+      <View onStartShouldSetResponder={captureTouch}>
+        <Pressable
+          onPress={handleDetectPress}
+          style={({ pressed }) => [
+            styles.detectButton,
+            {
+              borderColor: palette.border,
+              opacity: pressed ? 0.7 : 1,
+            },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Detect text in screenshot"
+        >
+          <ScanText size={14} color={palette.textSecondary} strokeWidth={2} />
+          <Text style={[styles.detectButtonLabel, { color: palette.textSecondary }]}>
+            Detect Text
+          </Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  // ── PROCESSING state ──
+  if (ocrState === 'processing') {
+    return (
+      <View onStartShouldSetResponder={captureTouch} style={styles.detectStateRow}>
+        <ActivityIndicator size="small" color={palette.primary} />
+        <Text style={[styles.detectStageLabel, { color: palette.textSecondary }]}>
+          {ocrStage}
+        </Text>
+      </View>
+    );
+  }
+
+  // ── FAILED state ──
+  if (ocrState === 'failed') {
+    return (
+      <View onStartShouldSetResponder={captureTouch} style={styles.detectStateColumn}>
+        <View style={styles.detectStateRow}>
+          <XCircle size={16} color={palette.urgencyRed} strokeWidth={2} />
+          <Text style={[styles.detectResultLabel, { color: palette.textPrimary }]}>
+            Could not detect text
+          </Text>
+        </View>
+        <Text style={[styles.detectSubLabel, { color: palette.textSecondary }]}>
+          Try better lighting or a higher resolution screenshot
+        </Text>
+        <Pressable onPress={handleRetry}>
+          <Text style={[styles.detectRetryLink, { color: palette.primary }]}>
+            Try again
+          </Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  // ── SUCCESS state ──
+  return (
+    <View onStartShouldSetResponder={captureTouch} style={styles.detectStateColumn}>
+      <Animated.View
+        style={[
+          styles.detectStateRow,
+          {
+            opacity: fadeAnim,
+            transform: [{ translateY: slideAnim }],
+          },
+        ]}
+      >
+        <CheckCircle size={16} color={palette.completeTint} strokeWidth={2} />
+        <Text style={[styles.detectResultLabel, { color: palette.textPrimary }]}>
+          {ocrResult?.wordCount || 0} words detected
+        </Text>
+        {ocrResult?.hasDevanagari && (
+          <View style={[styles.devanagariBadge, { backgroundColor: 'rgba(59,130,246,0.12)' }]}>
+            <Text style={styles.devanagariBadgeText}>हि</Text>
+          </View>
+        )}
+        <ConfidencePill confidence={ocrResult?.confidence} palette={palette} />
+      </Animated.View>
+
+      {/* Show/Hide text toggle */}
+      <Pressable onPress={togglePreview} style={styles.detectToggleRow}>
+        <Text style={[styles.detectToggleLabel, { color: palette.primary }]}>
+          {showTextPreview ? 'Hide text' : 'Show text'}
+        </Text>
+        {showTextPreview ? (
+          <ChevronUp size={12} color={palette.primary} strokeWidth={2.5} />
+        ) : (
+          <ChevronDown size={12} color={palette.primary} strokeWidth={2.5} />
+        )}
+      </Pressable>
+
+      {/* Text preview */}
+      <Animated.View
+        style={[
+          styles.detectPreviewContainer,
+          {
+            maxHeight: previewHeightAnim,
+            backgroundColor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+          },
+        ]}
+      >
+        <ScrollView nestedScrollEnabled style={styles.detectPreviewScroll}>
+          <Text
+            style={[styles.detectPreviewText, { color: palette.textPrimary }]}
+            selectable
+          >
+            {ocrResult?.text || ''}
+          </Text>
+        </ScrollView>
+      </Animated.View>
+    </View>
   );
 }
 
@@ -343,6 +569,12 @@ export default function ActionCard({
             )}
           </Pressable>
         </View>
+
+        {/* ── Text Detect Section ── */}
+        <View style={[styles.divider, { backgroundColor: palette.border }]} />
+        <View style={styles.detectSection}>
+          <TextDetectButton item={item} palette={palette} isDark={isDark} />
+        </View>
       </View>
     </Swipeable>
   );
@@ -495,5 +727,103 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: 4,
     letterSpacing: 0.3,
+  },
+
+  /* ── Text Detect Section ── */
+  detectSection: {
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm + 2,
+  },
+  detectButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: RADIUS.pill,
+    borderWidth: 1,
+    alignSelf: 'flex-start',
+  },
+  detectButtonLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+  },
+  detectStateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  detectStateColumn: {
+    gap: 6,
+  },
+  detectStageLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  detectResultLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  detectSubLabel: {
+    fontSize: 11,
+    fontWeight: '400',
+    marginLeft: 24,
+  },
+  detectRetryLink: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 24,
+    marginTop: 2,
+  },
+  detectToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    marginTop: 2,
+  },
+  detectToggleLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  detectPreviewContainer: {
+    borderRadius: 8,
+    overflow: 'hidden',
+    marginTop: 6,
+  },
+  detectPreviewScroll: {
+    padding: 8,
+  },
+  detectPreviewText: {
+    fontFamily: 'monospace',
+    fontSize: 11,
+    lineHeight: 16,
+  },
+
+  /* ── Confidence Pill ── */
+  confidencePill: {
+    paddingVertical: 2,
+    paddingHorizontal: 8,
+    borderRadius: RADIUS.pill,
+  },
+  confidenceText: {
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+
+  /* ── Devanagari Badge ── */
+  devanagariBadge: {
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    borderRadius: RADIUS.pill,
+  },
+  devanagariBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#3B82F6',
   },
 });

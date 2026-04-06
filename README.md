@@ -33,6 +33,47 @@
 
 ---
 
+## OCR Accuracy System (4 Layers)
+
+LaterLens uses a 4-layer OCR pipeline designed for difficult screenshots (dark mode UIs, mixed Hindi-English text, dense layouts, and low-contrast cards), while keeping all image handling fully on-device.
+
+1. **Layer 1: Preprocessing (On Device)**
+  - Tone detection (`light`, `dark`, `mixed`) from a center strip of the screenshot
+  - Resize and PNG conversion via `expo-image-manipulator`
+  - Color/filter transforms via `@shopify/react-native-skia` only:
+    - dark mode: greyscale -> invert -> sharpen
+    - light mode: sharpen
+    - mixed tone: contrast boost -> sharpen
+2. **Layer 2: Multi-Script OCR**
+  - ML Kit LATIN pass always runs
+  - DEVANAGARI pass runs only when the screenshot is likely from an Indian app
+3. **Layer 3: Post-Processing**
+  - UI chrome filtering (status bar text, nav labels, social action labels)
+  - Edge-region trimming, confidence filtering, deduplication, reading-order sorting
+  - Paragraph assembly and confidence grading (`low` / `medium` / `high`)
+4. **Layer 4: Confidence Retry**
+  - If low-word output is detected on non-inverted paths, apply contrast boost retry
+  - Compare retry output vs initial output and keep the better result
+
+### Detect Text UX
+
+The **Detect Text** action on each card provides visible progress states:
+
+- `idle`: ready state with outlined button
+- `processing`: stage label updates in real time (prepare, detect, Hindi pass, clean, retry)
+- `success`: detected word count, confidence badge, optional Hindi badge, expandable text preview
+- `failed`: recoverable error with retry prompt
+
+### Performance and Safety Constraints
+
+- OCR image preprocessing and recognition remain 100% on-device
+- No paid OCR service is used
+- Temporary files are cleaned up in `finally` blocks to avoid cache growth
+- Target pipeline latency: up to ~8 seconds on mid-range Android hardware
+- OCR debug logging is gated behind a `DEBUG` flag and disabled by default
+
+---
+
 ## Design System
 
 ### Light Theme
@@ -225,6 +266,7 @@ npx expo run:ios
 | Language | JavaScript (ES2022) |
 | AI / LLM | **Groq Cloud (Llama 3.1 8B Instant)** |
 | OCR | `@react-native-ml-kit/text-recognition` (on-device) |
+| OCR Image Processing | `@shopify/react-native-skia` (colour matrix transforms) |
 | Navigation | React Navigation 7 (Bottom Tabs + Native Stack) |
 | State | React Context + useReducer |
 | Storage | `@react-native-async-storage/async-storage` |
