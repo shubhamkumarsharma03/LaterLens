@@ -39,7 +39,7 @@ export default function StreakGrid({ streakData, theme }) {
       })
     );
 
-    Animated.stagger(60, animations).start();
+    Animated.stagger(30, animations).start();
   }, [animationValues]);
 
   const activityMap = streakData?.activityByDate || {};

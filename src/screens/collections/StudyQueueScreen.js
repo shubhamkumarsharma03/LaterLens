@@ -17,6 +17,7 @@ import { COLLECTION_ROUTES } from '../../navigation/routeNames';
 import { LEGACY_STORAGE_KEYS, STORAGE_KEYS } from '../../constants/storageKeys';
 import StudyCard from '../../components/StudyCard';
 import {
+  getStudyStats,
   getTodaysQueue,
   processRating,
 } from '../../services/spacedRepetitionService';
@@ -128,6 +129,7 @@ export default function StudyQueueScreen() {
   const [nextHint, setNextHint] = useState('Next review: tomorrow');
   const [streakInfo, setStreakInfo] = useState({ increased: false, value: 0 });
   const [isPanning, setIsPanning] = useState(false);
+  const [studyStats, setStudyStats] = useState({ dueToday: 0, masteredCount: 0, strugglingCount: 0 });
 
   const translateX = useRef(new Animated.Value(0)).current;
   const isAnimating = useRef(false);
@@ -142,15 +144,21 @@ export default function StudyQueueScreen() {
     setStatus('loading');
 
     try {
-      const [dueItems, earliestDate] = await Promise.all([
+      const [dueItems, earliestDate, stats] = await Promise.all([
         getTodaysQueue(),
         getEarliestFutureReviewDate(),
+        getStudyStats(),
       ]);
 
       setQueue(dueItems);
       setCurrentIndex(0);
       setRatings([]);
       setNextHint(getNextReviewHint(earliestDate));
+      setStudyStats({
+        dueToday: stats?.dueToday || 0,
+        masteredCount: stats?.masteredCount || 0,
+        strugglingCount: stats?.strugglingCount || 0,
+      });
       setStatus(dueItems.length > 0 ? 'active' : 'empty');
     } catch (error) {
       console.error('StudyQueueScreen: failed to load queue', error);
@@ -158,6 +166,7 @@ export default function StudyQueueScreen() {
       setCurrentIndex(0);
       setRatings([]);
       setNextHint('Next review: tomorrow');
+      setStudyStats({ dueToday: 0, masteredCount: 0, strugglingCount: 0 });
       setStatus('error');
     }
   }, []);
@@ -384,6 +393,21 @@ export default function StudyQueueScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: palette.background }]}> 
+      <View style={styles.statsRow}>
+        <View style={[styles.statsChip, { backgroundColor: palette.card, borderColor: palette.border }]}> 
+          <Text style={[styles.statsLabel, { color: palette.textSecondary }]}>Due today</Text>
+          <Text style={[styles.statsValue, { color: palette.textPrimary }]}>{studyStats.dueToday}</Text>
+        </View>
+        <View style={[styles.statsChip, { backgroundColor: palette.card, borderColor: palette.border }]}> 
+          <Text style={[styles.statsLabel, { color: palette.textSecondary }]}>Mastered</Text>
+          <Text style={[styles.statsValue, { color: palette.textPrimary }]}>{studyStats.masteredCount}</Text>
+        </View>
+        <View style={[styles.statsChip, { backgroundColor: palette.card, borderColor: palette.border }]}> 
+          <Text style={[styles.statsLabel, { color: palette.textSecondary }]}>Struggling</Text>
+          <Text style={[styles.statsValue, { color: palette.textPrimary }]}>{studyStats.strugglingCount}</Text>
+        </View>
+      </View>
+
       <View style={styles.progressHeader}>
         <View style={[styles.progressTrack, { backgroundColor: palette.border }]}> 
           <View
@@ -470,6 +494,31 @@ const styles = StyleSheet.create({
   },
   progressHeader: {
     marginBottom: 14,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 10,
+  },
+  statsChip: {
+    flex: 1,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statsLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  statsValue: {
+    marginTop: 2,
+    fontSize: 16,
+    fontWeight: '700',
   },
   progressTrack: {
     height: 8,

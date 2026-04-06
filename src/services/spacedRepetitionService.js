@@ -23,7 +23,7 @@ function toLocalDateString(dateObj) {
   return `${year}-${month}-${day}`;
 }
 
-function getTodayDateString() {
+export function getTodayString() {
   return toLocalDateString(new Date());
 }
 
@@ -37,7 +37,7 @@ function toDateString(value) {
   return toLocalDateString(parsed);
 }
 
-function addDaysToDateString(dateString, days) {
+export function addDays(dateString, days) {
   const start = new Date(`${dateString}T00:00:00`);
   start.setDate(start.getDate() + days);
   return toLocalDateString(start);
@@ -107,7 +107,7 @@ export async function enrollItemInSR(item) {
     return { success: false, reason: 'already_enrolled' };
   }
 
-  const today = getTodayDateString();
+  const today = getTodayString();
   const updatedItem = {
     ...SR_DEFAULTS,
     ...item,
@@ -127,7 +127,7 @@ export async function enrollItemInSR(item) {
 export async function processRating(item, rating) {
   clampRating(rating);
 
-  const today = getTodayDateString();
+  const today = getTodayString();
   const previousInterval = Number(item?.srInterval || SR_DEFAULTS.srInterval);
   const previousEaseFactor = Number(item?.srEaseFactor || SR_DEFAULTS.srEaseFactor);
   const repetitions = Number(item?.srRepetitions || 0);
@@ -161,7 +161,7 @@ export async function processRating(item, rating) {
     // Ease factor intentionally remains unchanged on failed recall.
   }
 
-  const newNextReviewDate = addDaysToDateString(today, newInterval);
+  const newNextReviewDate = addDays(today, newInterval);
   const priorHistory = Array.isArray(item?.srHistory) ? item.srHistory : [];
   const nextHistory = [
     ...priorHistory,
@@ -194,7 +194,7 @@ export async function processRating(item, rating) {
 }
 
 export async function getTodaysQueue() {
-  const today = getTodayDateString();
+  const today = getTodayString();
   const items = await getAllItems();
 
   const due = items
@@ -229,7 +229,7 @@ function computeLongestStreak(dateKeys) {
 
   for (let i = 1; i < sorted.length; i += 1) {
     const previous = sorted[i - 1];
-    const expected = addDaysToDateString(previous, 1);
+    const expected = addDays(previous, 1);
     if (sorted[i] === expected) {
       current += 1;
       longest = Math.max(longest, current);
@@ -242,7 +242,7 @@ function computeLongestStreak(dateKeys) {
 }
 
 export async function getStudyStats() {
-  const today = getTodayDateString();
+  const today = getTodayString();
   const items = await getAllItems();
   const enrolled = items.filter((item) => item?.srEnabled === true);
 

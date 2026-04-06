@@ -20,7 +20,7 @@ export default function DebtGauge({ backlogCount, severity, theme, onPress }) {
     const anim = Animated.timing(animation, {
       toValue: fillTarget,
       duration: 1000,
-      easing: Easing.out(Easing.exp),
+      easing: Easing.out(Easing.cubic),
       useNativeDriver: false,
     });
 

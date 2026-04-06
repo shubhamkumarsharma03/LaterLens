@@ -122,7 +122,11 @@ export default function StudyCard({ item, onRate, cardIndex, totalCards, theme, 
   };
 
   return (
-    <View style={[styles.wrapper, { backgroundColor: palette.card, borderColor: palette.border }]}> 
+    <View
+      style={[styles.wrapper, { backgroundColor: palette.card, borderColor: palette.border }]}
+      renderToHardwareTextureAndroid={true}
+      shouldRasterizeIOS={true}
+    > 
       <Animated.View
         style={[
           styles.face,

@@ -14,7 +14,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.LaterLens"
+      "bundleIdentifier": "com.shubhamksharma.laterlens"
     },
     "android": {
       "adaptiveIcon": {
@@ -22,12 +22,21 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.anonymous.LaterLens"
+      "package": "com.shubhamksharma.laterlens"
     },
     "web": {
       "favicon": "./assets/logo.png"
     },
     "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/logo.png",
+          "color": "#534AB7",
+          "sounds": [],
+          "mode": "production"
+        }
+      ],
       [
         "expo-media-library",
         {

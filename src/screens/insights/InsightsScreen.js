@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ShieldCheck } from 'lucide-react-native';
 
@@ -17,6 +17,7 @@ import StatCard from '../../components/insights/StatCard';
 import CategoryBar from '../../components/insights/CategoryBar';
 import StreakGrid from '../../components/insights/StreakGrid';
 import DebtGauge from '../../components/insights/DebtGauge';
+import { useQueue } from '../../state/QueueContext';
 import {
   computeBacklogSize,
   computeCategoryBreakdown,
@@ -25,7 +26,6 @@ import {
   computeTopInterests,
   computeTopStats,
   generateWeeklySummary,
-  getAllInsightsItems,
   getLastBulkImportSummary,
   getStreakData,
   updateStreakData,
@@ -104,6 +104,7 @@ export default function InsightsScreen() {
   const { palette } = theme;
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
+  const { allItems: queueAllItems, hydrateQueue } = useQueue();
 
   const [period, setPeriod] = useState('week');
   const [items, setItems] = useState([]);
@@ -171,6 +172,18 @@ export default function InsightsScreen() {
     }
   }, []);
 
+  useFocusEffect(
+    useCallback(() => {
+      hydrateQueue().catch((error) => {
+        console.error('InsightsScreen: failed to hydrate queue on focus', error);
+      });
+    }, [hydrateQueue])
+  );
+
+  useEffect(() => {
+    setAllItems(Array.isArray(queueAllItems) ? queueAllItems : []);
+  }, [queueAllItems]);
+
   useEffect(() => {
     let active = true;
 
@@ -178,7 +191,7 @@ export default function InsightsScreen() {
       setIsLoading(true);
 
       try {
-        const loadedAllItems = await getAllInsightsItems();
+        const loadedAllItems = await hydrateQueue();
         const streak = await getStreakData();
         const updatedStreak = await updateStreakData(streak);
         const importSummary = await getLastBulkImportSummary();
@@ -214,7 +227,7 @@ export default function InsightsScreen() {
         clearTimeout(recomputeDebounceRef.current);
       }
     };
-  }, [recomputeForPeriod]);
+  }, [hydrateQueue, recomputeForPeriod]);
 
   useEffect(() => {
     if (isLoading) return;
